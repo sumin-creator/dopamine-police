@@ -14,7 +14,7 @@ http://localhost:3000/
 画像は一旦frontend/imagesに格納してるよ！
 
 
-#以下AIによるGitHub解説
+#　以下AIによるGitHub解説
 cloneで取り込む方法
 以下でローカルに取り込める！
 git clone https://github.com/sumin-creator/shortblocker.git
