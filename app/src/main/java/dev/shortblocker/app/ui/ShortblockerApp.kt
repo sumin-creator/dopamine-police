@@ -6,7 +6,6 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,14 +63,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.shortblocker.app.MainActivity
-import dev.shortblocker.app.R
 import dev.shortblocker.app.data.AppState
 import dev.shortblocker.app.data.DailyStats
 import dev.shortblocker.app.data.DemoPreset
@@ -359,13 +355,10 @@ private fun HeroCard(state: AppState, stats: DailyStats) {
                     StatusBadge(state.liveMonitor.statusLabel, warningColor(state.liveMonitor.warningLevel))
                 }
                 Spacer(modifier = Modifier.width(12.dp))
-                Image(
-                    painter = painterResource(R.drawable.brainrot),
-                    contentDescription = null,
+                HeroVisual(
                     modifier = Modifier
                         .size(128.dp)
                         .clip(RoundedCornerShape(24.dp)),
-                    contentScale = ContentScale.Crop,
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -394,13 +387,10 @@ private fun CharacterStateCard(state: AppState) {
         subtitle = "介入エージェントとしての状態",
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Image(
-                painter = painterResource(R.drawable.teto),
-                contentDescription = null,
+            CharacterVisual(
                 modifier = Modifier
                     .size(112.dp)
                     .clip(RoundedCornerShape(24.dp)),
-                contentScale = ContentScale.Crop,
             )
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
@@ -416,6 +406,66 @@ private fun CharacterStateCard(state: AppState) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HeroVisual(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFFF855D),
+                        Color(0xFF58D7C5),
+                        MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                ),
+            ),
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(78.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF0C1013)),
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF58D7C5)),
+        )
+    }
+}
+
+@Composable
+private fun CharacterVisual(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color(0xFFFFD36A), Color(0xFFFF855D), Color(0xFF5B2A1F)),
+                ),
+            ),
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 14.dp)
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(Color(0xFFF7F4EF)),
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp)
+                .size(width = 66.dp, height = 46.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color(0xFF142029)),
+        )
     }
 }
 
