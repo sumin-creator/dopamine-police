@@ -1,70 +1,53 @@
-# ブレインロット対策
-short動画を検知して警告するアプリ
+# Shortblocker
+`Prototype.md` をもとに、Web プロトタイプから `Kotlin + Android` アプリへ移行したプロジェクトです。
 
-## 開発手順
-dockerをインストール！  
-https://qiita.com/honda-dev-jp/items/a372b11f47052dc20e8a
+ランタイムの主役は `app/` 配下の Android アプリです。Jetpack Compose で UI を構成し、`Accessibility Service` と `Usage Stats` と `Notification` アクションで短尺動画の見すぎ介入を行います。
 
-Dockerを開きながら、`shortblocker` ディレクトリに移動して以下を実行！
+## 実装済み
+- Kotlin + Android + Jetpack Compose のアプリ本体
+- `Accessibility Service` ベースの短尺動画 UI 検知
+- YouTube Shorts / Instagram Reels / TikTok For You の 3 系統を対象にしたルールベース判定
+- キャラクター介入通知と `今やめる / あと1分だけ / 無視する / 今日の目標を見る`
+- `DataStore` による `SessionLog` / `CharacterState` / 設定 / 監視状態の保存
+- ダッシュボード、監視設定、検知ラボ、仕様一覧の Android UI
+
+## ディレクトリ
+- `app/`: Android アプリ本体
+- `Prototype.md`: 元仕様
+- `frontend/`: 以前の Web プロトタイプ資産。現在の実行ターゲットではありません
+
+## ビルド
+Android Studio でこのリポジトリを開くか、ルートで以下を実行してください。
 
 ```bash
-sudo docker compose -f docker-compose.yml up --build
+./gradlew assembleDebug
 ```
 
-以下で閲覧可能！  
-http://localhost:3000/
-
-画像は一旦 `frontend/images` に格納してるよ！
-
-## 以下AIによるGitHub解説
-
-### cloneで取り込む方法
-以下でローカルに取り込める！
+生成される APK:
 
 ```bash
-git clone https://github.com/sumin-creator/shortblocker.git
-cd shortblocker
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### ブランチ作成の例
-基本は`main`で直接作業せず、ブランチを切って作業するのがおすすめ！  
-ブランチ名は何でもOK（例: `feature/top-page`, `fix/readme` など）
+## 初回セットアップ
+アプリ起動後、以下を有効化してください。
 
-新しい作業ブランチを作る:
+1. `Accessibility Service`
+2. `Usage Stats`
+3. 通知権限
 
-```bash
-git switch -c feature/update-top-page
-```
+監視状態は `Monitor` タブで確認できます。
 
-変更をコミットしてpushする:
+## 開発メモ
+- `MainActivity` が Compose UI の入口です
+- `ShortVideoAccessibilityService` が UI イベントを監視します
+- `ShortVideoDetector` が short-video score を計算します
+- `NotificationActionReceiver` が通知アクションを処理します
+- `AppStateStore` が永続状態を保存します
 
-```bash
-git add .
-git commit -m "トップページの見た目を調整"
-git push -u origin feature/update-top-page
-```
-
-`main`を最新にしてから新しくブランチを切る例:
-
-```bash
-git switch main
-git pull origin main
-git switch -c feature/another-task
-```
-
-### mainの更新方法
-作業ブランチで変更したあと、`main`に反映して更新する流れは以下！
-
-1. GitHubでPull Requestを作成して`main`にマージ  
-2. ローカルの`main`を更新
+## 検証
+2026-04-15 時点でローカルで以下を実行し、`assembleDebug` の成功を確認しています。
 
 ```bash
-git switch main
-git pull origin main
-```
-
-3. 次の作業は新しいブランチで開始
-
-```bash
-git switch -c feature/next-task
+./gradlew --no-daemon assembleDebug
 ```
