@@ -52,3 +52,4 @@ app/build/outputs/apk/debug/app-debug.apk
 ```
 
 gitテスト住野
+gitテスト梅津
