@@ -9,4 +9,7 @@
     <string name="notification_extend">あと1分だけ</string>
     <string name="notification_ignore">無視する</string>
     <string name="notification_goal">今日の目標を見る</string>
+    <string name="overlay_channel_name">Shortblocker Overlay</string>
+    <string name="overlay_notification_title">警告オーバーレイを表示中</string>
+    <string name="overlay_notification_text">画像とサイレンを重ねて表示しています</string>
 </resources>
