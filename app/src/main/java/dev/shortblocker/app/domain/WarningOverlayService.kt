@@ -20,6 +20,10 @@ import android.view.animation.Animation
 import android.widget.ImageView
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
+import coil.ImageLoader
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
+import coil.request.ImageRequest
 import dev.shortblocker.app.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +37,7 @@ class WarningOverlayService : Service() {
     private var autoDismissJob: Job? = null
     private var sirenJob: Job? = null
     private var toneGenerator: ToneGenerator? = null
+    private var imageLoader: ImageLoader? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -59,6 +64,11 @@ class WarningOverlayService : Service() {
         if (overlayView != null) return
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
+        val density = resources.displayMetrics.density
+        val gifSizePx = (BASE_GIF_SIZE_DP * GIF_SCALE * density).toInt()
+        val sirenSizePx = (88 * density).toInt()
+        val marginPx = (12 * density).toInt()
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -68,13 +78,29 @@ class WarningOverlayService : Service() {
         val siren = ImageView(this).apply {
             setImageResource(R.drawable.ic_siren)
             imageTintList = null
+            scaleType = ImageView.ScaleType.FIT_CENTER
         }
         val hand = ImageView(this).apply {
-            setImageResource(R.drawable.hand)
             adjustViewBounds = true
-            maxWidth = 600
-            maxHeight = 600
+            scaleType = ImageView.ScaleType.FIT_CENTER
         }
+        val loader = ImageLoader.Builder(this)
+            .components {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    add(ImageDecoderDecoder.Factory())
+                } else {
+                    add(GifDecoder.Factory())
+                }
+            }
+            .build()
+        imageLoader = loader
+        loader.enqueue(
+            ImageRequest.Builder(this)
+                .data("file:///android_asset/jump.gif")
+                .target(hand)
+                .crossfade(false)
+                .build(),
+        )
 
         val pulse = AlphaAnimation(0.35f, 1f).apply {
             duration = 280
@@ -85,14 +111,14 @@ class WarningOverlayService : Service() {
 
         root.addView(
             siren,
-            LinearLayout.LayoutParams(160, 160).apply {
-                bottomMargin = 20
+            LinearLayout.LayoutParams(sirenSizePx, sirenSizePx).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = marginPx
             },
         )
         root.addView(
             hand,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            LinearLayout.LayoutParams(gifSizePx, gifSizePx).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
             },
         )
@@ -125,6 +151,8 @@ class WarningOverlayService : Service() {
         }
         overlayView = null
         windowManager = null
+        imageLoader?.shutdown()
+        imageLoader = null
     }
 
     private fun scheduleAutoDismiss() {
@@ -196,6 +224,8 @@ class WarningOverlayService : Service() {
         private const val AUTO_DISMISS_MS = 7_000L
         private const val CHANNEL_ID = "shortblocker_overlay_service"
         private const val NOTIFICATION_ID = 1101
+        private const val BASE_GIF_SIZE_DP = 320
+        private const val GIF_SCALE = 1
 
         fun canDrawOverlays(context: Context): Boolean {
             return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
