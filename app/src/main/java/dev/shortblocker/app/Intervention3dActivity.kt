@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -45,6 +46,11 @@ import dev.shortblocker.app.ui.theme.ShortblockerTheme
 import io.github.sceneview.SceneView
 import io.github.sceneview.node.ModelNode
 import io.github.sceneview.rememberModelInstance
+import coil.ImageLoader
+import coil.compose.AsyncImage
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
+import coil.request.ImageRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -169,7 +175,7 @@ private fun Intervention3dScreen(
         AndroidMascot3dView(
             modifier = Modifier
                 .align(Alignment.Center)
-                .size(320.dp),
+                .size(960.dp),
             style = style,
             useGlb = false,
         )
@@ -225,9 +231,25 @@ private fun AndroidMascot3dView(
     style: WarningStyle,
     useGlb: Boolean,
 ) {
-    Image(
-        painter = painterResource(id = R.drawable.hand),
-        contentDescription = "Warning hand image",
+    val context = LocalContext.current
+    val imageLoader = remember {
+        ImageLoader.Builder(context)
+            .components {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    add(ImageDecoderDecoder.Factory())
+                } else {
+                    add(GifDecoder.Factory())
+                }
+            }
+            .build()
+    }
+    AsyncImage(
+        model = ImageRequest.Builder(context)
+            .data("file:///android_asset/jump.gif")
+            .crossfade(false)
+            .build(),
+        imageLoader = imageLoader,
+        contentDescription = "Warning jump gif",
         contentScale = ContentScale.Fit,
         modifier = modifier,
     )
