@@ -6,8 +6,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import dev.shortblocker.app.Intervention3dActivity
 import dev.shortblocker.app.MainActivity
 import dev.shortblocker.app.R
 import dev.shortblocker.app.data.PendingIntervention
@@ -24,6 +26,7 @@ class ShortblockerNotificationController(private val context: Context) {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
             .setContentIntent(goalIntent())
+            .setFullScreenIntent(interventionIntent(pending), true)
             .addAction(
                 0,
                 context.getString(R.string.notification_stop),
@@ -47,6 +50,7 @@ class ShortblockerNotificationController(private val context: Context) {
             .build()
 
         NotificationManagerCompat.from(context).notify(INTERVENTION_ID, notification)
+        launchInterventionImmediately(pending)
     }
 
     fun dismissIntervention() {
@@ -88,6 +92,36 @@ class ShortblockerNotificationController(private val context: Context) {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+    }
+
+    private fun interventionIntent(pending: PendingIntervention): PendingIntent {
+        val intent = Intervention3dActivity.intent(
+            context = context,
+            appName = pending.appName,
+            dialogue = pending.dialogue,
+            score = pending.score,
+            warningLevel = pending.warningLevel.name,
+        )
+        return PendingIntent.getActivity(
+            context,
+            5096,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun launchInterventionImmediately(pending: PendingIntervention) {
+        val intent = Intervention3dActivity.intent(
+            context = context,
+            appName = pending.appName,
+            dialogue = pending.dialogue,
+            score = pending.score,
+            warningLevel = pending.warningLevel.name,
+        )
+        runCatching { context.startActivity(intent) }
+            .onFailure { throwable ->
+                Log.w("ShortblockerNotification", "Failed to launch intervention immediately", throwable)
+            }
     }
 
     companion object {
