@@ -12,6 +12,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import dev.shortblocker.app.data.WarningLevel
@@ -169,7 +171,7 @@ private fun Intervention3dScreen(
                 .align(Alignment.Center)
                 .size(320.dp),
             style = style,
-            useGlb = hasGlb,
+            useGlb = false,
         )
         Column(
             modifier = Modifier
@@ -223,22 +225,12 @@ private fun AndroidMascot3dView(
     style: WarningStyle,
     useGlb: Boolean,
 ) {
-    if (useGlb) {
-        GlbMascot3dView(
-            modifier = modifier,
-            style = style,
-        )
-    } else {
-        androidx.compose.ui.viewinterop.AndroidView(
-            modifier = modifier,
-            factory = {
-                MascotGlSurfaceView(it, style)
-            },
-        )
-        DisposableEffect(Unit) {
-            onDispose { }
-        }
-    }
+    Image(
+        painter = painterResource(id = R.drawable.hand),
+        contentDescription = "Warning hand image",
+        contentScale = ContentScale.Fit,
+        modifier = modifier,
+    )
 }
 
 @Composable
