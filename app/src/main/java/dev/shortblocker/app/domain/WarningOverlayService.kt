@@ -4,12 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.media.AudioManager
-import android.media.MediaPlayer
 import android.media.ToneGenerator
 import android.os.Build
 import android.os.IBinder
@@ -35,7 +33,6 @@ class WarningOverlayService : Service() {
     private var autoDismissJob: Job? = null
     private var sirenJob: Job? = null
     private var toneGenerator: ToneGenerator? = null
-    private var mediaPlayer: MediaPlayer? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -141,20 +138,12 @@ class WarningOverlayService : Service() {
     private fun startSiren() {
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         runCatching {
-            val maxAlarm = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-            if (audioManager.getStreamVolume(AudioManager.STREAM_ALARM) < maxAlarm / 2) {
-                audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxAlarm / 2, 0)
+            val maxMusic = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) < maxMusic / 2) {
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxMusic / 2, 0)
             }
         }
-        runCatching {
-            mediaPlayer = MediaPlayer.create(this, Settings.System.DEFAULT_ALARM_ALERT_URI)?.apply {
-                isLooping = true
-                setAudioStreamType(AudioManager.STREAM_ALARM)
-                start()
-            }
-        }
-        if (mediaPlayer != null) return
-        toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 100)
+        toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
         sirenJob = CoroutineScope(Dispatchers.Default).launch {
             while (true) {
                 toneGenerator?.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 320)
@@ -170,9 +159,6 @@ class WarningOverlayService : Service() {
         sirenJob = null
         toneGenerator?.release()
         toneGenerator = null
-        mediaPlayer?.stop()
-        mediaPlayer?.release()
-        mediaPlayer = null
     }
 
     private fun startAsForegroundService() {
