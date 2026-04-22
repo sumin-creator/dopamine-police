@@ -23,6 +23,12 @@ data class DetectionDecision(
     val shouldTrigger: Boolean,
 )
 
+internal data class ScoreableShortsEvidence(
+    val keywordHits: Set<String>,
+    val actionHints: Set<String>,
+    val swipeBurst: Int,
+)
+
 class ShortVideoDetector {
     private val lateNightDialogues = listOf(
         "この時間のShorts、ほぼ事故だよ。",
@@ -266,13 +272,18 @@ class ShortVideoDetector {
         }
         val freshCandidateEvidence = currentCandidateEvidence ||
             now - baseSession.lastCandidateEvidenceAt <= SHORTS_CANDIDATE_TTL_MS
-        val currentReliableEvidence = freshCandidateEvidence && hasYoutubeShortsViewerEvidence(
+        val currentViewerEvidence = hasYoutubeShortsViewerEvidence(
+            keywordHits = currentKeywordHits,
+            actionHints = currentActionHints,
+        )
+        val retainedViewerEvidence = freshCandidateEvidence && hasYoutubeShortsViewerEvidence(
             keywordHits = candidateKeywordHits,
             actionHints = candidateActionHints,
         )
-        val freshReliableEvidence = currentReliableEvidence ||
+        val reliableEvidenceObservedNow = currentCandidateEvidence && retainedViewerEvidence
+        val freshReliableEvidence = reliableEvidenceObservedNow ||
             now - baseSession.lastReliableEvidenceAt <= SHORTS_EVIDENCE_TTL_MS
-        val lastReliableEvidenceAt = if (currentReliableEvidence) {
+        val lastReliableEvidenceAt = if (reliableEvidenceObservedNow) {
             now
         } else {
             baseSession.lastReliableEvidenceAt
@@ -286,11 +297,12 @@ class ShortVideoDetector {
             else -> emptySet()
         }
         val verticalScroll = isLikelyVerticalScroll(event)
+        val continuingShortsScroll = verticalScroll && freshReliableEvidence
         val swipeBurst = when {
-            verticalScroll && freshReliableEvidence &&
+            continuingShortsScroll &&
                 now - baseSession.lastScrollAt <= SCROLL_BURST_WINDOW_MS -> baseSession.swipeBurst + 1
 
-            verticalScroll && freshReliableEvidence -> 1
+            continuingShortsScroll -> 1
             !freshReliableEvidence -> 0
             else -> baseSession.swipeBurst
         }
@@ -315,11 +327,18 @@ class ShortVideoDetector {
         )
         activeSession = updatedSession
 
-        val uiFeatures = detectUiFeatures(
-            target = target,
+        val scoreableEvidence = resolveScoreableShortsEvidence(
             keywordHits = keywordHits,
             actionHints = actionHints,
             swipeBurst = swipeBurst,
+            currentViewerEvidence = currentViewerEvidence,
+            continuingShortsScroll = continuingShortsScroll,
+        )
+        val uiFeatures = detectUiFeatures(
+            target = target,
+            keywordHits = scoreableEvidence.keywordHits,
+            actionHints = scoreableEvidence.actionHints,
+            swipeBurst = scoreableEvidence.swipeBurst,
         )
 
         val scenario = DetectionScenario(
@@ -328,10 +347,10 @@ class ShortVideoDetector {
             timeBand = timeBand,
             sessionMinutes = ((now - updatedSession.sessionStartedAt) / 60_000L).toInt().coerceAtLeast(1),
             relaunchCount = updatedSession.relaunchCount,
-            swipeBurst = updatedSession.swipeBurst,
+            swipeBurst = scoreableEvidence.swipeBurst,
             dwellSeconds = ((now - updatedSession.lastTransitionAt) / 1000L).toInt().coerceAtLeast(1),
             reentryAfterWarning = updatedSession.relaunchCount > 0,
-            keywords = keywordHits.toList(),
+            keywords = scoreableEvidence.keywordHits.toList(),
             uiFeatures = uiFeatures,
             note = "YouTube Shorts stage=${stage.name}",
         )
@@ -347,13 +366,36 @@ class ShortVideoDetector {
         val shouldTrigger = decision.shouldTrigger && now - recentWarning > WARNING_RATE_LIMIT_MS
         android.util.Log.d(
             TAG,
-            "pkg=$packageName stage=${stage.name} shortsSwipes=$swipeBurst " +
+            "pkg=$packageName stage=${stage.name} shortsSwipes=${scoreableEvidence.swipeBurst} " +
                 "score=${decision.snapshot.score} trigger=$shouldTrigger",
         )
         if (shouldTrigger) {
             lastWarningTimes[packageName] = now
         }
         return decision.copy(shouldTrigger = shouldTrigger)
+    }
+
+    internal fun resolveScoreableShortsEvidence(
+        keywordHits: Set<String>,
+        actionHints: Set<String>,
+        swipeBurst: Int,
+        currentViewerEvidence: Boolean,
+        continuingShortsScroll: Boolean,
+    ): ScoreableShortsEvidence {
+        val canScoreAsShorts = currentViewerEvidence || continuingShortsScroll
+        return if (canScoreAsShorts) {
+            ScoreableShortsEvidence(
+                keywordHits = keywordHits,
+                actionHints = actionHints,
+                swipeBurst = swipeBurst,
+            )
+        } else {
+            ScoreableShortsEvidence(
+                keywordHits = emptySet(),
+                actionHints = emptySet(),
+                swipeBurst = 0,
+            )
+        }
     }
 
     private fun detectKeywords(target: ServiceTarget, signals: EventSignals): List<String> {

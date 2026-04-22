@@ -7,6 +7,7 @@ import dev.shortblocker.app.data.ServiceTarget
 import dev.shortblocker.app.data.TimeBand
 import dev.shortblocker.app.data.UiFeature
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -166,5 +167,35 @@ class ShortVideoDetectorTest {
         )
 
         assertFalse(decision.shouldTrigger)
+    }
+
+    @Test
+    fun retainedShortsEvidenceDoesNotScoreAfterLeavingViewer() {
+        val evidence = detector.resolveScoreableShortsEvidence(
+            keywordHits = setOf("Shorts"),
+            actionHints = setOf("like", "share"),
+            swipeBurst = 2,
+            currentViewerEvidence = false,
+            continuingShortsScroll = false,
+        )
+
+        assertTrue(evidence.keywordHits.isEmpty())
+        assertTrue(evidence.actionHints.isEmpty())
+        assertEquals(0, evidence.swipeBurst)
+    }
+
+    @Test
+    fun retainedShortsEvidenceCanScoreDuringContinuousShortsScroll() {
+        val evidence = detector.resolveScoreableShortsEvidence(
+            keywordHits = setOf("Shorts"),
+            actionHints = setOf("like", "share"),
+            swipeBurst = 2,
+            currentViewerEvidence = false,
+            continuingShortsScroll = true,
+        )
+
+        assertEquals(setOf("Shorts"), evidence.keywordHits)
+        assertEquals(setOf("like", "share"), evidence.actionHints)
+        assertEquals(2, evidence.swipeBurst)
     }
 }
