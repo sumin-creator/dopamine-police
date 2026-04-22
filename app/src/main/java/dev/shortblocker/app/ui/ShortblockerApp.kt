@@ -80,10 +80,8 @@ import dev.shortblocker.app.domain.DetectionDecision
 import java.time.ZoneId
 
 private enum class AppTab(val route: String, val title: String, val icon: @Composable () -> Unit) {
-    DASHBOARD("dashboard", "Dashboard", { Icon(Icons.Outlined.Dashboard, contentDescription = null) }),
-    MONITOR("monitor", "Monitor", { Icon(Icons.Outlined.Visibility, contentDescription = null) }),
-    LAB("lab", "Lab", { Icon(Icons.Outlined.PsychologyAlt, contentDescription = null) }),
-    SPEC("spec", "Spec", { Icon(Icons.Outlined.Analytics, contentDescription = null) });
+    DASHBOARD("dashboard", "ホーム", { Icon(Icons.Outlined.Dashboard, contentDescription = null) }),
+    MONITOR("monitor", "設定", { Icon(Icons.Outlined.Visibility, contentDescription = null) });
 
     companion object {
         fun fromRoute(route: String?): AppTab =
@@ -209,14 +207,7 @@ fun ShortblockerApp(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("ドーパミン警察")
-                        Text(
-                            text = "Kotlin + Android migration",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text("ドーパミン警察")
                 },
             )
         },
@@ -269,19 +260,7 @@ fun ShortblockerApp(
                     onToggleAlerts = viewModel::toggleAlerts,
                     onToggleService = viewModel::toggleSupportedService,
                     onResetCooldown = viewModel::resetCooldown,
-                    onSelectLauncherLogo = { logo ->
-                        viewModel.updateLauncherLogo(context, logo)
-                    },
                 )
-                AppTab.LAB -> LabScreen(
-                    state = state,
-                    preset = preset,
-                    decision = demoDecision,
-                    onSelectPreset = viewModel::setPreset,
-                    onAdvanceSwipe = viewModel::advanceSwipe,
-                    onTrigger = viewModel::triggerDemo,
-                )
-                AppTab.SPEC -> SpecScreen()
             }
         }
     }
@@ -290,7 +269,6 @@ fun ShortblockerApp(
 @Composable
 private fun DashboardScreen(state: AppState) {
     val stats = remember(state.sessionLogs, state.settings.dailyGoalMinutes) { state.dailyStats() }
-    val zoneId = remember { ZoneId.systemDefault() }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
@@ -303,18 +281,15 @@ private fun DashboardScreen(state: AppState) {
             SummaryRow(stats = stats)
         }
         item {
-            CharacterStateCard(state = state)
-        }
-        item {
             SectionCard(
-                title = "Recent SessionLog",
-                subtitle = "stop / extend / ignore の選択履歴",
+                title = "いまのひとこと",
+                subtitle = "短く確認",
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    for (log in state.sessionLogs.take(8)) {
-                        LogRow(log = log, zoneId = zoneId)
-                    }
-                }
+                Text(
+                    text = state.liveMonitor.currentDialogue,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         }
     }
@@ -348,12 +323,12 @@ private fun HeroCard(state: AppState, stats: DailyStats) {
             ) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "UI体験を検知して止める Android アプリ",
+                        text = "見すぎ防止をサポート",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = "Accessibility Service / Usage Stats / Notification アクションで、短尺動画への再突入を Kotlin 側で完結させます。",
+                        text = "今日はゆるく整えていこう",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -368,8 +343,8 @@ private fun HeroCard(state: AppState, stats: DailyStats) {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MetricCard(title = "警告回数", value = stats.warningCount.toString(), modifier = Modifier.weight(1f))
-                MetricCard(title = "推定セーブ時間", value = "${stats.estimatedSavedMinutes} min", modifier = Modifier.weight(1f))
-                MetricCard(title = "危険時間帯", value = stats.mostRiskyTimeBand.label, modifier = Modifier.weight(1f))
+                MetricCard(title = "セーブ時間", value = "${stats.estimatedSavedMinutes}分", modifier = Modifier.weight(1f))
+                MetricCard(title = "目標達成", value = "${stats.goalProgressPercent}%", modifier = Modifier.weight(1f))
             }
         }
     }
@@ -489,7 +464,6 @@ private fun MonitorScreen(
     onToggleAlerts: () -> Unit,
     onToggleService: (ServiceTarget) -> Unit,
     onResetCooldown: () -> Unit,
-    onSelectLauncherLogo: (LauncherLogo) -> Unit,
 ) {
     val live = state.liveMonitor
     LazyColumn(
@@ -499,27 +473,20 @@ private fun MonitorScreen(
     ) {
         item {
             SectionCard(
-                title = "Live Monitor",
-                subtitle = "Accessibility Service と Usage Stats の現在値",
+                title = "現在の状態",
+                subtitle = "監視状態の確認",
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        MetricCard("Foreground", state.foregroundAppName, modifier = Modifier.weight(1f))
-                        MetricCard("Current Score", live.currentScore.toString(), modifier = Modifier.weight(1f))
-                        MetricCard("Warning Level", live.warningLevel.label, modifier = Modifier.weight(1f))
+                        MetricCard("利用中アプリ", state.foregroundAppName, modifier = Modifier.weight(1f))
+                        MetricCard("判定スコア", live.currentScore.toString(), modifier = Modifier.weight(1f))
+                        MetricCard("警告レベル", live.warningLevel.label, modifier = Modifier.weight(1f))
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         StatusBadge(live.statusLabel, warningColor(live.warningLevel))
-                        InfoChip("session ${live.sessionMinutes} min")
-                        InfoChip("swipe ${live.swipeBurst}")
-                        InfoChip("dwell ${live.dwellSeconds}s")
-                        InfoChip("time ${live.timeBand.label}")
+                        InfoChip("視聴 ${live.sessionMinutes}分")
+                        InfoChip("連続スワイプ ${live.swipeBurst}")
                     }
-                    Text(
-                        text = live.currentDialogue,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = onRefresh) { Text("状態を更新") }
                         OutlinedButton(onClick = onResetCooldown) { Text("クールダウン解除") }
@@ -529,8 +496,8 @@ private fun MonitorScreen(
         }
         item {
             SectionCard(
-                title = "Permissions",
-                subtitle = "監視に必要な権限導線",
+                title = "権限",
+                subtitle = "必要な権限の設定",
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     PermissionRow("Accessibility Service", state.permissions.accessibility, onOpenAccessibilitySettings)
@@ -544,12 +511,12 @@ private fun MonitorScreen(
         }
         item {
             SectionCard(
-                title = "Trigger Policy & Settings",
-                subtitle = "Prototype.md の閾値・介入頻度・対象サービスを Android 側で調整",
+                title = "基本設定",
+                subtitle = "監視のしきい値と対象サービス",
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                     SettingSlider(
-                        label = "Warning Threshold",
+                        label = "警告しきい値",
                         value = state.settings.threshold.toFloat(),
                         valueRange = 45f..85f,
                         steps = 7,
@@ -557,7 +524,7 @@ private fun MonitorScreen(
                         onValueChange = { onThresholdChange(it.toInt()) },
                     )
                     SettingSlider(
-                        label = "Cooldown Minutes",
+                        label = "クールダウン時間",
                         value = state.settings.cooldownMinutes.toFloat(),
                         valueRange = 1f..10f,
                         steps = 8,
@@ -565,7 +532,7 @@ private fun MonitorScreen(
                         onValueChange = { onCooldownChange(it.toInt()) },
                     )
                     SettingSlider(
-                        label = "Daily Goal",
+                        label = "1日の目標時間",
                         value = state.settings.dailyGoalMinutes.toFloat(),
                         valueRange = 10f..60f,
                         steps = 9,
@@ -575,8 +542,13 @@ private fun MonitorScreen(
                     FilterChip(
                         selected = state.settings.alertsEnabled,
                         onClick = onToggleAlerts,
-                        label = { Text(if (state.settings.alertsEnabled) "監視オン" else "監視オフ") },
+                        label = { Text(if (state.settings.alertsEnabled) "通知: オン" else "通知: オフ") },
                         leadingIcon = { Icon(Icons.Outlined.NotificationsActive, contentDescription = null) },
+                    )
+                    Text(
+                        text = "対象サービス",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
                     )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         for (service in ServiceTarget.entries) {
@@ -584,20 +556,6 @@ private fun MonitorScreen(
                                 selected = state.settings.supportedApps.isEnabled(service),
                                 onClick = { onToggleService(service) },
                                 label = { Text(service.label) },
-                            )
-                        }
-                    }
-                    Text(
-                        text = "App Icon",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for (logo in LauncherLogo.entries) {
-                            FilterChip(
-                                selected = state.settings.launcherLogo == logo,
-                                onClick = { onSelectLauncherLogo(logo) },
-                                label = { Text(logo.label) },
                             )
                         }
                     }
@@ -811,7 +769,7 @@ private fun PermissionRow(title: String, granted: Boolean, onClick: () -> Unit) 
         Column {
             Text(title, fontWeight = FontWeight.SemiBold)
             Text(
-                text = if (granted) "Granted" else "Needs setup",
+                text = if (granted) "設定済み" else "未設定",
                 color = if (granted) Color(0xFF58D7C5) else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
