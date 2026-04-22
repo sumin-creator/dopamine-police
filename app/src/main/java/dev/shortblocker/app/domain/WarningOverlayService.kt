@@ -17,6 +17,7 @@ import android.view.View
 import android.view.WindowManager
 import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
@@ -68,8 +69,12 @@ class WarningOverlayService : Service() {
         val gifSizePx = (BASE_GIF_SIZE_DP * GIF_SCALE * density).toInt()
         val sirenSizePx = (88 * density).toInt()
         val marginPx = (4 * density).toInt()
+        val bottomMarginPx = (OVERLAY_BOTTOM_MARGIN_DP * density).toInt()
+        val sirenOffsetPx = (SIREN_OFFSET_DP * density).toInt()
 
-        val root = LinearLayout(this).apply {
+        val root = FrameLayout(this)
+
+        val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(24, 24, 24, 24)
@@ -79,6 +84,7 @@ class WarningOverlayService : Service() {
             setImageResource(R.drawable.ic_siren)
             imageTintList = null
             scaleType = ImageView.ScaleType.FIT_CENTER
+            translationY = sirenOffsetPx.toFloat()
         }
         val hand = ImageView(this).apply {
             adjustViewBounds = true
@@ -109,23 +115,34 @@ class WarningOverlayService : Service() {
         }
         siren.startAnimation(pulse)
 
-        root.addView(
+        content.addView(
             siren,
             LinearLayout.LayoutParams(sirenSizePx, sirenSizePx).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
                 bottomMargin = marginPx
             },
         )
-        root.addView(
+        content.addView(
             hand,
             LinearLayout.LayoutParams(gifSizePx, gifSizePx).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
             },
         )
 
+        root.addView(
+            content,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                bottomMargin = bottomMarginPx
+            },
+        )
+
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             } else {
@@ -137,8 +154,7 @@ class WarningOverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = (500 * density).toInt()
+            gravity = Gravity.TOP or Gravity.START
         }
 
         windowManager?.addView(root, params)
@@ -227,6 +243,8 @@ class WarningOverlayService : Service() {
         private const val NOTIFICATION_ID = 1101
         private const val BASE_GIF_SIZE_DP = 320
         private const val GIF_SCALE = 2
+        private const val OVERLAY_BOTTOM_MARGIN_DP = -32
+        private const val SIREN_OFFSET_DP = 20
 
         fun canDrawOverlays(context: Context): Boolean {
             return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
