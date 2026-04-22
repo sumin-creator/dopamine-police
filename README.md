@@ -51,4 +51,4 @@ app/build/outputs/apk/debug/app-debug.apk
 ./gradlew --no-daemon assembleDebug
 ```
 
-gitテスト住野
+gif更新
