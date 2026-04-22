@@ -67,7 +67,7 @@ class WarningOverlayService : Service() {
         val density = resources.displayMetrics.density
         val gifSizePx = (BASE_GIF_SIZE_DP * GIF_SCALE * density).toInt()
         val sirenSizePx = (88 * density).toInt()
-        val marginPx = (12 * density).toInt()
+        val marginPx = (4 * density).toInt()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -137,7 +137,8 @@ class WarningOverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.CENTER
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = (500 * density).toInt()
         }
 
         windowManager?.addView(root, params)
@@ -225,7 +226,7 @@ class WarningOverlayService : Service() {
         private const val CHANNEL_ID = "shortblocker_overlay_service"
         private const val NOTIFICATION_ID = 1101
         private const val BASE_GIF_SIZE_DP = 320
-        private const val GIF_SCALE = 1
+        private const val GIF_SCALE = 2
 
         fun canDrawOverlays(context: Context): Boolean {
             return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
