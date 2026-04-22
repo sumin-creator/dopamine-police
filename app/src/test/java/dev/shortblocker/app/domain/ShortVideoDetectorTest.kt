@@ -74,16 +74,48 @@ class ShortVideoDetectorTest {
     }
 
     @Test
-    fun shortVideoStructureTriggersWhenScoreAndPermissionsAreReady() {
+    fun shortVideoStructureDoesNotTriggerBeforeSecondShortsSwipe() {
         val decision = detector.evaluateScenario(
             scenario = DetectionScenario(
                 appName = "YouTube",
                 packageName = ServiceTarget.YOUTUBE.packageName,
                 timeBand = TimeBand.LATE_NIGHT,
-                sessionMinutes = 14,
+                sessionMinutes = 4,
+                relaunchCount = 0,
+                swipeBurst = 1,
+                dwellSeconds = 12,
+                reentryAfterWarning = false,
+                keywords = listOf("Shorts"),
+                uiFeatures = listOf(
+                    UiFeature.FULLSCREEN_VERTICAL,
+                    UiFeature.ACTION_RAIL,
+                    UiFeature.VIDEO_STRUCTURE,
+                    UiFeature.CONTINUOUS_TRANSITIONS,
+                ),
+                note = "Shorts viewer before enough page swipes",
+            ),
+            settings = settings,
+            cooldownUntilEpochMillis = 0L,
+            requirePermissions = true,
+            permissions = permissions,
+            now = 1_000L,
+        )
+
+        assertTrue(decision.snapshot.score >= settings.threshold)
+        assertFalse(decision.shouldTrigger)
+    }
+
+    @Test
+    fun shortVideoStructureTriggersAfterSecondShortsSwipe() {
+        val decision = detector.evaluateScenario(
+            scenario = DetectionScenario(
+                appName = "YouTube",
+                packageName = ServiceTarget.YOUTUBE.packageName,
+                timeBand = TimeBand.LATE_NIGHT,
+                sessionMinutes = 4,
                 relaunchCount = 2,
-                swipeBurst = 4,
-                dwellSeconds = 26,
+                swipeBurst = 2,
+                dwellSeconds = 12,
                 reentryAfterWarning = true,
                 keywords = listOf("Shorts"),
                 uiFeatures = listOf(
@@ -103,5 +135,36 @@ class ShortVideoDetectorTest {
 
         assertTrue(decision.snapshot.score >= settings.threshold)
         assertTrue(decision.shouldTrigger)
+    }
+
+    @Test
+    fun nonYoutubeShortVideoScenarioDoesNotTriggerForNow() {
+        val decision = detector.evaluateScenario(
+            scenario = DetectionScenario(
+                appName = "Instagram",
+                packageName = ServiceTarget.INSTAGRAM.packageName,
+                timeBand = TimeBand.LATE_NIGHT,
+                sessionMinutes = 14,
+                relaunchCount = 2,
+                swipeBurst = 4,
+                dwellSeconds = 26,
+                reentryAfterWarning = true,
+                keywords = listOf("Reels"),
+                uiFeatures = listOf(
+                    UiFeature.FULLSCREEN_VERTICAL,
+                    UiFeature.ACTION_RAIL,
+                    UiFeature.VIDEO_STRUCTURE,
+                    UiFeature.CONTINUOUS_TRANSITIONS,
+                ),
+                note = "Instagram is intentionally out of scope while tuning YouTube Shorts",
+            ),
+            settings = settings,
+            cooldownUntilEpochMillis = 0L,
+            requirePermissions = true,
+            permissions = permissions,
+            now = 1_000L,
+        )
+
+        assertFalse(decision.shouldTrigger)
     }
 }

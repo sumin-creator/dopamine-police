@@ -40,10 +40,11 @@ class ShortVideoDetector {
         "今日はさすがに見すぎ。",
         "未来の自分に怒られるやつだよ。",
     )
-    private val actionRailHints = listOf(
+    private val youtubeActionRailHints = listOf(
         "like",
         "liked",
         "いいね",
+        "高評価",
         "comment",
         "コメント",
         "share",
@@ -57,11 +58,18 @@ class ShortVideoDetector {
         "remix",
         "フォロー",
         "follow",
+        "subscribe",
+        "チャンネル登録",
     )
-    private val structuralIdHints = mapOf(
-        ServiceTarget.YOUTUBE to listOf("short", "shorts", "reel"),
-        ServiceTarget.INSTAGRAM to listOf("reel", "reels", "clips"),
-        ServiceTarget.TIKTOK to listOf("for_you", "foryou", "aweme", "feed_video"),
+    private val youtubeShortsKeywords = listOf(
+        "shorts",
+        "ショート",
+        "youtube shorts",
+    )
+    private val youtubeShortsViewIdHints = listOf(
+        "short",
+        "shorts",
+        "reel",
     )
 
     private var activeSession: ActiveSession? = null
@@ -77,8 +85,8 @@ class ShortVideoDetector {
         now: Long = System.currentTimeMillis(),
     ): DetectionDecision {
         val target = ServiceTarget.fromPackage(scenario.packageName)
-        val targetEnabled = settings.supportedApps.isEnabled(target)
-        val targetAppContext = if (target != null && targetEnabled) {
+        val youtubeRuntimeTarget = target == ServiceTarget.YOUTUBE && settings.supportedApps.isEnabled(target)
+        val targetAppContext = if (youtubeRuntimeTarget) {
             min(30, 18 + min(scenario.relaunchCount, 3) * 4)
         } else {
             0
@@ -164,11 +172,9 @@ class ShortVideoDetector {
         )
         val permissionsReady = !requirePermissions || permissions.allRequiredGranted
         val reliableShortVideoEvidence = hasReliableShortVideoEvidence(scenario)
-        val interactionEvidence = scenario.swipeBurst >= 2 ||
-            scenario.sessionMinutes >= 3 ||
-            scenario.dwellSeconds >= 12
+        val interactionEvidence = scenario.swipeBurst >= REQUIRED_SHORTS_SWIPES
         val shouldTrigger = settings.alertsEnabled &&
-            targetEnabled &&
+            youtubeRuntimeTarget &&
             permissionsReady &&
             now >= cooldownUntilEpochMillis &&
             reliableShortVideoEvidence &&
@@ -191,14 +197,14 @@ class ShortVideoDetector {
             .let { TimeBand.fromHour(it.hour) }
         val target = ServiceTarget.fromPackage(packageName)
 
-        if (target == null) {
+        if (target != ServiceTarget.YOUTUBE) {
             activeSession?.let { active ->
                 recentExitTimes[active.packageName] = now
             }
             activeSession = null
             return DetectionDecision(
                 snapshot = DetectionSnapshot(
-                    appName = packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() },
+                    appName = target?.appName ?: packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() },
                     packageName = packageName,
                     timeBand = timeBand,
                     score = 0,
@@ -239,31 +245,63 @@ class ShortVideoDetector {
                 lastTransitionAt = now,
                 keywordHits = emptySet(),
                 actionHints = emptySet(),
+                stage = DetectionStage.IDLE,
+                lastReliableEvidenceAt = 0L,
             )
         } else {
             existing
         } ?: return null
 
         val signals = collectSignals(event)
-        val keywordHits = (baseSession.keywordHits + detectKeywords(target, signals)).toSet()
-        val actionHints = (baseSession.actionHints + detectActionHints(signals)).toSet()
+        val currentKeywordHits = detectKeywords(target, signals).toSet()
+        val currentActionHints = detectActionHints(signals).toSet()
+        val currentReliableEvidence = hasYoutubeShortsViewerEvidence(
+            keywordHits = currentKeywordHits,
+            actionHints = currentActionHints,
+        )
+        val freshReliableEvidence = currentReliableEvidence ||
+            now - baseSession.lastReliableEvidenceAt <= SHORTS_EVIDENCE_TTL_MS
+        val lastReliableEvidenceAt = if (currentReliableEvidence) {
+            now
+        } else {
+            baseSession.lastReliableEvidenceAt
+        }
+        val keywordHits = when {
+            currentKeywordHits.isNotEmpty() -> (baseSession.keywordHits + currentKeywordHits).toSet()
+            freshReliableEvidence -> baseSession.keywordHits
+            else -> emptySet()
+        }
+        val actionHints = when {
+            currentActionHints.isNotEmpty() -> (baseSession.actionHints + currentActionHints).toSet()
+            freshReliableEvidence -> baseSession.actionHints
+            else -> emptySet()
+        }
         val verticalScroll = isLikelyVerticalScroll(event)
         val swipeBurst = when {
-            verticalScroll && now - baseSession.lastScrollAt <= SCROLL_BURST_WINDOW_MS -> baseSession.swipeBurst + 1
+            verticalScroll && freshReliableEvidence &&
+                now - baseSession.lastScrollAt <= SCROLL_BURST_WINDOW_MS -> baseSession.swipeBurst + 1
 
-            verticalScroll -> 1
+            verticalScroll && freshReliableEvidence -> 1
+            !freshReliableEvidence -> 0
             else -> baseSession.swipeBurst
         }
         val lastTransitionAt = when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> now
             else -> baseSession.lastTransitionAt
         }
+        val stage = when {
+            swipeBurst >= REQUIRED_SHORTS_SWIPES -> DetectionStage.WATCHING_SHORTS
+            freshReliableEvidence || keywordHits.isNotEmpty() -> DetectionStage.CANDIDATE
+            else -> DetectionStage.IDLE
+        }
         val updatedSession = baseSession.copy(
             swipeBurst = swipeBurst,
             keywordHits = keywordHits,
             actionHints = actionHints,
+            stage = stage,
+            lastReliableEvidenceAt = lastReliableEvidenceAt,
             lastScrollAt = if (verticalScroll) now else baseSession.lastScrollAt,
-            lastTransitionAt = if (verticalScroll) now else lastTransitionAt,
+            lastTransitionAt = if (verticalScroll && freshReliableEvidence) now else lastTransitionAt,
         )
         activeSession = updatedSession
 
@@ -285,7 +323,7 @@ class ShortVideoDetector {
             reentryAfterWarning = updatedSession.relaunchCount > 0,
             keywords = keywordHits.toList(),
             uiFeatures = uiFeatures,
-            note = "Accessibility event driven detection",
+            note = "YouTube Shorts stage=${stage.name}",
         )
         val decision = evaluateScenario(
             scenario = scenario,
@@ -295,7 +333,10 @@ class ShortVideoDetector {
             permissions = permissions,
             now = now,
         )
-        android.util.Log.d("ShortDetector", "pkg=$packageName score=${decision.snapshot.score} trigger=${decision.shouldTrigger}")
+        android.util.Log.d(
+            "ShortDetector",
+            "pkg=$packageName stage=${stage.name} shortsSwipes=$swipeBurst score=${decision.snapshot.score} trigger=${decision.shouldTrigger}",
+        )
         val recentWarning = lastWarningTimes[packageName] ?: 0L
         val shouldTrigger = decision.shouldTrigger && now - recentWarning > 30_000L
         if (shouldTrigger) {
@@ -308,10 +349,15 @@ class ShortVideoDetector {
         if (signals.isEmpty()) {
             return emptyList()
         }
-        val textMatches = target.keywords.filter { keyword ->
+        val keywords = if (target == ServiceTarget.YOUTUBE) {
+            youtubeShortsKeywords
+        } else {
+            target.keywords
+        }
+        val textMatches = keywords.filter { keyword ->
             signals.normalizedText.contains(keyword.lowercase(Locale.US))
         }
-        val idMatches = structuralIdHints[target].orEmpty()
+        val idMatches = youtubeShortsViewIdHints
             .filter { hint -> signals.normalizedViewIds.contains(hint) }
             .map { hint -> "ui:$hint" }
         return (textMatches + idMatches).distinct()
@@ -322,10 +368,15 @@ class ShortVideoDetector {
             return emptyList()
         }
         val searchable = "${signals.normalizedText} ${signals.normalizedViewIds}"
-        return actionRailHints.filter { hint ->
+        return youtubeActionRailHints.filter { hint ->
             searchable.contains(hint.lowercase(Locale.US))
         }.distinct()
     }
+
+    private fun hasYoutubeShortsViewerEvidence(
+        keywordHits: Set<String>,
+        actionHints: Set<String>,
+    ): Boolean = keywordHits.isNotEmpty() && actionHints.size >= MIN_ACTION_RAIL_HINTS
 
     private fun detectUiFeatures(
         target: ServiceTarget,
@@ -334,10 +385,11 @@ class ShortVideoDetector {
         swipeBurst: Int,
     ): List<UiFeature> {
         val hasShortSurfaceHint = keywordHits.isNotEmpty()
-        val hasActionRail = actionHints.size >= 2
-        val hasRepeatedVerticalNavigation = swipeBurst >= 2
-        val hasShortVideoStructure = (hasShortSurfaceHint && (hasActionRail || hasRepeatedVerticalNavigation)) ||
-            (target == ServiceTarget.TIKTOK && hasActionRail && hasRepeatedVerticalNavigation)
+        val hasActionRail = actionHints.size >= MIN_ACTION_RAIL_HINTS
+        val hasRepeatedVerticalNavigation = swipeBurst >= REQUIRED_SHORTS_SWIPES
+        val hasShortVideoStructure = target == ServiceTarget.YOUTUBE &&
+            hasShortSurfaceHint &&
+            (hasActionRail || hasRepeatedVerticalNavigation)
 
         return buildList {
             if (hasShortVideoStructure) {
@@ -358,14 +410,11 @@ class ShortVideoDetector {
     private fun hasReliableShortVideoEvidence(scenario: DetectionScenario): Boolean {
         val features = scenario.uiFeatures.toSet()
         val target = ServiceTarget.fromPackage(scenario.packageName)
-        return UiFeature.VIDEO_STRUCTURE in features ||
+        return target == ServiceTarget.YOUTUBE && (
+            UiFeature.VIDEO_STRUCTURE in features ||
             (UiFeature.FULLSCREEN_VERTICAL in features && UiFeature.ACTION_RAIL in features) ||
-            scenario.keywords.size >= 2 ||
-            (
-                target == ServiceTarget.TIKTOK &&
-                    UiFeature.ACTION_RAIL in features &&
-                    UiFeature.CONTINUOUS_TRANSITIONS in features
-                )
+            (scenario.keywords.isNotEmpty() && UiFeature.ACTION_RAIL in features)
+            )
     }
 
     private fun isLikelyVerticalScroll(event: AccessibilityEvent): Boolean {
@@ -470,7 +519,15 @@ class ShortVideoDetector {
         val lastScrollAt: Long = 0L,
         val keywordHits: Set<String>,
         val actionHints: Set<String>,
+        val stage: DetectionStage,
+        val lastReliableEvidenceAt: Long,
     )
+
+    private enum class DetectionStage {
+        IDLE,
+        CANDIDATE,
+        WATCHING_SHORTS,
+    }
 
     private data class EventSignals(
         val texts: Set<String> = emptySet(),
@@ -485,6 +542,9 @@ class ShortVideoDetector {
 
     private companion object {
         const val SCROLL_BURST_WINDOW_MS = 20_000L
+        const val SHORTS_EVIDENCE_TTL_MS = 12_000L
+        const val REQUIRED_SHORTS_SWIPES = 2
+        const val MIN_ACTION_RAIL_HINTS = 2
         const val MAX_NODE_DEPTH = 5
         const val MAX_NODE_COUNT = 80
     }
