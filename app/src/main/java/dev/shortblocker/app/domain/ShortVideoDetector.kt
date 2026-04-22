@@ -345,26 +345,10 @@ class ShortVideoDetector {
         )
         val recentWarning = lastWarningTimes[packageName] ?: 0L
         val shouldTrigger = decision.shouldTrigger && now - recentWarning > WARNING_RATE_LIMIT_MS
-        val blockedReason = triggerReason(
-            settings = settings,
-            permissions = permissions,
-            cooldownUntilEpochMillis = cooldownUntilEpochMillis,
-            decision = decision,
-            freshReliableEvidence = freshReliableEvidence,
-            swipeBurst = swipeBurst,
-            recentWarningAt = recentWarning,
-            now = now,
-            finalTrigger = shouldTrigger,
-        )
         android.util.Log.d(
             TAG,
-            "pkg=$packageName event=${eventTypeName(event.eventType)} stage=${stage.name} " +
-                "vertical=$verticalScroll candidateEvidence=$freshCandidateEvidence " +
-                "reliableEvidence=$freshReliableEvidence keywords=${keywordHits.joinToString(prefix = "[", postfix = "]")} " +
-                "actions=${actionHints.joinToString(prefix = "[", postfix = "]")} " +
-                "features=${uiFeatures.joinToString(prefix = "[", postfix = "]") { it.name }} " +
-                "shortsSwipes=$swipeBurst score=${decision.snapshot.score} threshold=${settings.threshold} " +
-                "decision=${decision.shouldTrigger} finalTrigger=$shouldTrigger reason=$blockedReason",
+            "pkg=$packageName stage=${stage.name} shortsSwipes=$swipeBurst " +
+                "score=${decision.snapshot.score} trigger=$shouldTrigger",
         )
         if (shouldTrigger) {
             lastWarningTimes[packageName] = now
@@ -442,38 +426,6 @@ class ShortVideoDetector {
             (UiFeature.FULLSCREEN_VERTICAL in features && UiFeature.ACTION_RAIL in features) ||
             (scenario.keywords.isNotEmpty() && UiFeature.ACTION_RAIL in features)
             )
-    }
-
-    private fun triggerReason(
-        settings: MonitorSettings,
-        permissions: PermissionSnapshot,
-        cooldownUntilEpochMillis: Long,
-        decision: DetectionDecision,
-        freshReliableEvidence: Boolean,
-        swipeBurst: Int,
-        recentWarningAt: Long,
-        now: Long,
-        finalTrigger: Boolean,
-    ): String = when {
-        finalTrigger -> "trigger"
-        !settings.alertsEnabled -> "alerts_disabled"
-        !settings.supportedApps.youtube -> "youtube_disabled"
-        !permissions.accessibility -> "permission_accessibility_missing"
-        !permissions.usageStats -> "permission_usage_stats_missing"
-        !permissions.notifications -> "permission_notifications_missing"
-        cooldownUntilEpochMillis > now -> "cooldown"
-        !freshReliableEvidence -> "no_reliable_shorts_evidence"
-        swipeBurst < REQUIRED_SHORTS_SWIPES -> "need_more_shorts_swipes"
-        decision.snapshot.score < settings.threshold -> "below_threshold"
-        decision.shouldTrigger && now - recentWarningAt <= WARNING_RATE_LIMIT_MS -> "rate_limited"
-        else -> "policy_blocked"
-    }
-
-    private fun eventTypeName(eventType: Int): String = when (eventType) {
-        AccessibilityEvent.TYPE_VIEW_SCROLLED -> "TYPE_VIEW_SCROLLED"
-        AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> "TYPE_WINDOW_STATE_CHANGED"
-        AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> "TYPE_WINDOW_CONTENT_CHANGED"
-        else -> eventType.toString()
     }
 
     private fun isLikelyVerticalScroll(event: AccessibilityEvent): Boolean {
