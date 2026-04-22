@@ -102,7 +102,7 @@ class WarningOverlayService : Service() {
         imageLoader = loader
         loader.enqueue(
             ImageRequest.Builder(this)
-                .data("file:///android_asset/jump.gif")
+                .data("file:///android_asset/$GIF_ASSET_FILE_NAME")
                 .target(hand)
                 .crossfade(false)
                 .build(),
@@ -174,10 +174,91 @@ class WarningOverlayService : Service() {
 
     private fun scheduleAutoDismiss() {
         autoDismissJob?.cancel()
+        val dismissDelayMs = resolveAutoDismissDelayMs()
         autoDismissJob = CoroutineScope(Dispatchers.Main.immediate).launch {
-            delay(AUTO_DISMISS_MS)
+            delay(dismissDelayMs)
             stopSelf()
         }
+    }
+
+    private fun resolveAutoDismissDelayMs(): Long {
+        val singleLoopMs = runCatching {
+            assets.open(GIF_ASSET_FILE_NAME).use { input ->
+                extractGifDurationMs(input.readBytes())
+            }
+        }.getOrNull()
+
+        return if (singleLoopMs != null) {
+            singleLoopMs * GIF_LOOP_COUNT_BEFORE_DISMISS
+        } else {
+            AUTO_DISMISS_MS
+        }
+    }
+
+    private fun extractGifDurationMs(gifBytes: ByteArray): Long? {
+        if (gifBytes.size < 10) return null
+        if (
+            gifBytes[0] != 'G'.code.toByte() ||
+            gifBytes[1] != 'I'.code.toByte() ||
+            gifBytes[2] != 'F'.code.toByte()
+        ) {
+            return null
+        }
+
+        var index = 13
+        if (gifBytes.size <= index) return null
+
+        val hasGlobalColorTable = (gifBytes[10].toInt() and 0x80) != 0
+        if (hasGlobalColorTable) {
+            val tableSize = 3 * (1 shl ((gifBytes[10].toInt() and 0x07) + 1))
+            index += tableSize
+        }
+
+        var totalDelayCs = 0L
+        while (index + 1 < gifBytes.size) {
+            when (gifBytes[index].toInt() and 0xFF) {
+                0x21 -> {
+                    val label = gifBytes[index + 1].toInt() and 0xFF
+                    if (label == 0xF9 && index + 7 < gifBytes.size && gifBytes[index + 2].toInt() == 0x04) {
+                        val delayLo = gifBytes[index + 4].toInt() and 0xFF
+                        val delayHi = gifBytes[index + 5].toInt() and 0xFF
+                        val delayCs = (delayHi shl 8) or delayLo
+                        totalDelayCs += if (delayCs <= 1) 10 else delayCs
+                        index += 8
+                    } else {
+                        index += 2
+                        while (index < gifBytes.size) {
+                            val blockSize = gifBytes[index].toInt() and 0xFF
+                            index += 1
+                            if (blockSize == 0) break
+                            index += blockSize
+                        }
+                    }
+                }
+                0x2C -> {
+                    if (index + 9 >= gifBytes.size) return null
+                    val packed = gifBytes[index + 9].toInt() and 0xFF
+                    index += 10
+                    val hasLocalColorTable = (packed and 0x80) != 0
+                    if (hasLocalColorTable) {
+                        val localTableSize = 3 * (1 shl ((packed and 0x07) + 1))
+                        index += localTableSize
+                    }
+                    if (index >= gifBytes.size) return null
+                    index += 1 // LZW minimum code size
+                    while (index < gifBytes.size) {
+                        val blockSize = gifBytes[index].toInt() and 0xFF
+                        index += 1
+                        if (blockSize == 0) break
+                        index += blockSize
+                    }
+                }
+                0x3B -> break
+                else -> return null
+            }
+        }
+
+        return (totalDelayCs * 10).takeIf { it > 0 }
     }
 
     private fun startSiren() {
@@ -241,6 +322,8 @@ class WarningOverlayService : Service() {
         private const val AUTO_DISMISS_MS = 7_000L
         private const val CHANNEL_ID = "shortblocker_overlay_service"
         private const val NOTIFICATION_ID = 1101
+        private const val GIF_ASSET_FILE_NAME = "jump.gif"
+        private const val GIF_LOOP_COUNT_BEFORE_DISMISS = 2L
         private const val BASE_GIF_SIZE_DP = 320
         private const val GIF_SCALE = 2
         private const val OVERLAY_BOTTOM_MARGIN_DP = -32
