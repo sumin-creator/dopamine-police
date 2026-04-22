@@ -26,14 +26,18 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
         val store = application.container.store
         val state = store.state.value
+        val permissions = application.buildPermissionSnapshot(ShortVideoAccessibilityService::class.java)
         val decision = application.container.detector.processEvent(
             event = safeEvent,
             settings = state.settings,
-            permissions = state.permissions,
+            permissions = permissions,
             cooldownUntilEpochMillis = state.cooldownUntilEpochMillis,
         ) ?: return
 
         application.container.applicationScope.launch {
+            if (state.permissions != permissions) {
+                store.updatePermissions(permissions)
+            }
             store.applyEvaluation(
                 snapshot = decision.snapshot,
                 shouldTrigger = decision.shouldTrigger,

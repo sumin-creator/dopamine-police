@@ -1,21 +1,26 @@
 package dev.shortblocker.app.domain
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import dev.shortblocker.app.MainActivity
 import dev.shortblocker.app.R
 import dev.shortblocker.app.data.PendingIntervention
 
 class ShortblockerNotificationController(private val context: Context) {
+    @SuppressLint("MissingPermission")
     fun showIntervention(pending: PendingIntervention) {
         createChannel()
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -49,7 +54,16 @@ class ShortblockerNotificationController(private val context: Context) {
             )
             .build()
 
-        NotificationManagerCompat.from(context).notify(INTERVENTION_ID, notification)
+        if (!canPostNotifications()) {
+            Log.w("ShortblockerNotification", "Notification permission is missing; notification skipped")
+            launchOverlay(pending)
+            return
+        }
+        runCatching {
+            NotificationManagerCompat.from(context).notify(INTERVENTION_ID, notification)
+        }.onFailure { throwable ->
+            Log.w("ShortblockerNotification", "Failed to show intervention notification", throwable)
+        }
         launchOverlay(pending)
     }
 
@@ -115,6 +129,17 @@ class ShortblockerNotificationController(private val context: Context) {
             .onFailure { throwable ->
                 Log.w("ShortblockerNotification", "Failed to open overlay permission settings", throwable)
             }
+    }
+
+    private fun canPostNotifications(): Boolean {
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            return false
+        }
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
     }
 
     companion object {
