@@ -1,6 +1,7 @@
 package dev.shortblocker.app.domain
 
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import dev.shortblocker.app.data.DetectionBreakdown
 import dev.shortblocker.app.data.DetectionScenario
 import dev.shortblocker.app.data.DetectionSnapshot
@@ -13,6 +14,7 @@ import dev.shortblocker.app.data.WarningLevel
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -37,6 +39,29 @@ class ShortVideoDetector {
     private val strongDialogues = listOf(
         "今日はさすがに見すぎ。",
         "未来の自分に怒られるやつだよ。",
+    )
+    private val actionRailHints = listOf(
+        "like",
+        "liked",
+        "いいね",
+        "comment",
+        "コメント",
+        "share",
+        "共有",
+        "send",
+        "送信",
+        "save",
+        "保存",
+        "sound",
+        "音源",
+        "remix",
+        "フォロー",
+        "follow",
+    )
+    private val structuralIdHints = mapOf(
+        ServiceTarget.YOUTUBE to listOf("short", "shorts", "reel"),
+        ServiceTarget.INSTAGRAM to listOf("reel", "reels", "clips"),
+        ServiceTarget.TIKTOK to listOf("for_you", "foryou", "aweme", "feed_video"),
     )
 
     private var activeSession: ActiveSession? = null
@@ -138,10 +163,16 @@ class ShortVideoDetector {
             createdAtEpochMillis = now,
         )
         val permissionsReady = !requirePermissions || permissions.allRequiredGranted
+        val reliableShortVideoEvidence = hasReliableShortVideoEvidence(scenario)
+        val interactionEvidence = scenario.swipeBurst >= 2 ||
+            scenario.sessionMinutes >= 3 ||
+            scenario.dwellSeconds >= 12
         val shouldTrigger = settings.alertsEnabled &&
             targetEnabled &&
             permissionsReady &&
             now >= cooldownUntilEpochMillis &&
+            reliableShortVideoEvidence &&
+            interactionEvidence &&
             total >= settings.threshold
 
         return DetectionDecision(snapshot = snapshot, shouldTrigger = shouldTrigger)
@@ -159,12 +190,6 @@ class ShortVideoDetector {
             .atZone(ZoneId.systemDefault())
             .let { TimeBand.fromHour(it.hour) }
         val target = ServiceTarget.fromPackage(packageName)
-        val texts = buildList {
-            event.text?.forEach { item ->
-                item?.toString()?.takeIf { it.isNotBlank() }?.let(::add)
-            }
-            event.contentDescription?.toString()?.takeIf { it.isNotBlank() }?.let(::add)
-        }
 
         if (target == null) {
             activeSession?.let { active ->
@@ -213,42 +238,41 @@ class ShortVideoDetector {
                 swipeBurst = 0,
                 lastTransitionAt = now,
                 keywordHits = emptySet(),
+                actionHints = emptySet(),
             )
         } else {
             existing
         } ?: return null
 
-        val keywordHits = (baseSession.keywordHits + detectKeywords(target, texts)).toSet()
+        val signals = collectSignals(event)
+        val keywordHits = (baseSession.keywordHits + detectKeywords(target, signals)).toSet()
+        val actionHints = (baseSession.actionHints + detectActionHints(signals)).toSet()
+        val verticalScroll = isLikelyVerticalScroll(event)
         val swipeBurst = when {
-            event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED &&
-                now - baseSession.lastScrollAt <= 25_000L -> baseSession.swipeBurst + 1
+            verticalScroll && now - baseSession.lastScrollAt <= SCROLL_BURST_WINDOW_MS -> baseSession.swipeBurst + 1
 
-            event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED -> 1
+            verticalScroll -> 1
             else -> baseSession.swipeBurst
         }
         val lastTransitionAt = when (event.eventType) {
-            AccessibilityEvent.TYPE_VIEW_SCROLLED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> now
             else -> baseSession.lastTransitionAt
         }
         val updatedSession = baseSession.copy(
             swipeBurst = swipeBurst,
             keywordHits = keywordHits,
-            lastScrollAt = if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) now else baseSession.lastScrollAt,
-            lastTransitionAt = lastTransitionAt,
+            actionHints = actionHints,
+            lastScrollAt = if (verticalScroll) now else baseSession.lastScrollAt,
+            lastTransitionAt = if (verticalScroll) now else lastTransitionAt,
         )
         activeSession = updatedSession
 
-        val uiFeatures = buildList {
-            add(UiFeature.VIDEO_STRUCTURE)
-            add(UiFeature.FULLSCREEN_VERTICAL)
-            if (keywordHits.isNotEmpty() || swipeBurst > 0) {
-                add(UiFeature.ACTION_RAIL)
-            }
-            if (swipeBurst >= 2 || event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
-                add(UiFeature.CONTINUOUS_TRANSITIONS)
-            }
-        }.distinct()
+        val uiFeatures = detectUiFeatures(
+            target = target,
+            keywordHits = keywordHits,
+            actionHints = actionHints,
+            swipeBurst = swipeBurst,
+        )
 
         val scenario = DetectionScenario(
             appName = target.appName,
@@ -279,13 +303,135 @@ class ShortVideoDetector {
         return decision.copy(shouldTrigger = shouldTrigger)
     }
 
-    private fun detectKeywords(target: ServiceTarget, texts: List<String>): List<String> {
-        if (texts.isEmpty()) {
+    private fun detectKeywords(target: ServiceTarget, signals: EventSignals): List<String> {
+        if (signals.isEmpty()) {
             return emptyList()
         }
-        val normalized = texts.joinToString(separator = " ").lowercase(Locale.US)
-        return target.keywords.filter { keyword ->
-            normalized.contains(keyword.lowercase(Locale.US))
+        val textMatches = target.keywords.filter { keyword ->
+            signals.normalizedText.contains(keyword.lowercase(Locale.US))
+        }
+        val idMatches = structuralIdHints[target].orEmpty()
+            .filter { hint -> signals.normalizedViewIds.contains(hint) }
+            .map { hint -> "ui:$hint" }
+        return (textMatches + idMatches).distinct()
+    }
+
+    private fun detectActionHints(signals: EventSignals): List<String> {
+        if (signals.isEmpty()) {
+            return emptyList()
+        }
+        val searchable = "${signals.normalizedText} ${signals.normalizedViewIds}"
+        return actionRailHints.filter { hint ->
+            searchable.contains(hint.lowercase(Locale.US))
+        }.distinct()
+    }
+
+    private fun detectUiFeatures(
+        target: ServiceTarget,
+        keywordHits: Set<String>,
+        actionHints: Set<String>,
+        swipeBurst: Int,
+    ): List<UiFeature> {
+        val hasShortSurfaceHint = keywordHits.isNotEmpty()
+        val hasActionRail = actionHints.size >= 2
+        val hasRepeatedVerticalNavigation = swipeBurst >= 2
+        val hasShortVideoStructure = (hasShortSurfaceHint && (hasActionRail || hasRepeatedVerticalNavigation)) ||
+            (target == ServiceTarget.TIKTOK && hasActionRail && hasRepeatedVerticalNavigation)
+
+        return buildList {
+            if (hasShortVideoStructure) {
+                add(UiFeature.VIDEO_STRUCTURE)
+            }
+            if (hasShortVideoStructure && hasActionRail) {
+                add(UiFeature.FULLSCREEN_VERTICAL)
+            }
+            if (hasActionRail && (hasShortSurfaceHint || hasRepeatedVerticalNavigation)) {
+                add(UiFeature.ACTION_RAIL)
+            }
+            if (hasRepeatedVerticalNavigation && (hasShortSurfaceHint || hasActionRail)) {
+                add(UiFeature.CONTINUOUS_TRANSITIONS)
+            }
+        }.distinct()
+    }
+
+    private fun hasReliableShortVideoEvidence(scenario: DetectionScenario): Boolean {
+        val features = scenario.uiFeatures.toSet()
+        val target = ServiceTarget.fromPackage(scenario.packageName)
+        return UiFeature.VIDEO_STRUCTURE in features ||
+            (UiFeature.FULLSCREEN_VERTICAL in features && UiFeature.ACTION_RAIL in features) ||
+            scenario.keywords.size >= 2 ||
+            (
+                target == ServiceTarget.TIKTOK &&
+                    UiFeature.ACTION_RAIL in features &&
+                    UiFeature.CONTINUOUS_TRANSITIONS in features
+                )
+    }
+
+    private fun isLikelyVerticalScroll(event: AccessibilityEvent): Boolean {
+        if (event.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            return false
+        }
+        val horizontalDelta = event.scrollDeltaX
+        val verticalDelta = event.scrollDeltaY
+        if (horizontalDelta == 0 && verticalDelta == 0) {
+            return true
+        }
+        return abs(verticalDelta) >= abs(horizontalDelta)
+    }
+
+    private fun collectSignals(event: AccessibilityEvent): EventSignals {
+        val eventTexts = linkedSetOf<String>()
+        val eventClassNames = linkedSetOf<String>()
+        event.text?.forEach { item ->
+            item?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(eventTexts::add)
+        }
+        event.contentDescription?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(eventTexts::add)
+        event.className?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(eventClassNames::add)
+
+        val nodeSignals = runCatching { collectNodeSignals(event.source) }
+            .getOrDefault(EventSignals())
+        return EventSignals(
+            texts = eventTexts + nodeSignals.texts,
+            viewIds = nodeSignals.viewIds,
+            classNames = eventClassNames + nodeSignals.classNames,
+        )
+    }
+
+    @Suppress("DEPRECATION")
+    private fun collectNodeSignals(root: AccessibilityNodeInfo?): EventSignals {
+        if (root == null) {
+            return EventSignals()
+        }
+        val texts = linkedSetOf<String>()
+        val viewIds = linkedSetOf<String>()
+        val classNames = linkedSetOf<String>()
+        var visited = 0
+
+        fun visit(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > MAX_NODE_DEPTH || visited >= MAX_NODE_COUNT) {
+                return
+            }
+            visited += 1
+            node.text?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(texts::add)
+            node.contentDescription?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(texts::add)
+            node.viewIdResourceName?.trim()?.takeIf { it.isNotBlank() }?.let(viewIds::add)
+            node.className?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(classNames::add)
+
+            for (index in 0 until node.childCount) {
+                val child = runCatching { node.getChild(index) }.getOrNull() ?: continue
+                try {
+                    visit(child, depth + 1)
+                } finally {
+                    child.recycle()
+                }
+            }
+        }
+
+        return try {
+            visit(root, depth = 0)
+            EventSignals(texts = texts, viewIds = viewIds, classNames = classNames)
+        } finally {
+            root.recycle()
         }
     }
 
@@ -322,5 +468,23 @@ class ShortVideoDetector {
         val lastTransitionAt: Long,
         val lastScrollAt: Long = 0L,
         val keywordHits: Set<String>,
+        val actionHints: Set<String>,
     )
+
+    private data class EventSignals(
+        val texts: Set<String> = emptySet(),
+        val viewIds: Set<String> = emptySet(),
+        val classNames: Set<String> = emptySet(),
+    ) {
+        val normalizedText: String = texts.joinToString(separator = " ").lowercase(Locale.US)
+        val normalizedViewIds: String = viewIds.joinToString(separator = " ").lowercase(Locale.US)
+
+        fun isEmpty(): Boolean = texts.isEmpty() && viewIds.isEmpty() && classNames.isEmpty()
+    }
+
+    private companion object {
+        const val SCROLL_BURST_WINDOW_MS = 20_000L
+        const val MAX_NODE_DEPTH = 5
+        const val MAX_NODE_COUNT = 80
+    }
 }
