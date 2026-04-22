@@ -4,6 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.graphics.drawable.Animatable
+import android.graphics.drawable.Animatable2
+import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.Drawable
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -25,6 +29,8 @@ import coil.ImageLoader
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.request.ImageRequest
+import coil.request.SuccessResult
+import coil.request.repeatCount
 import dev.shortblocker.app.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,8 +41,8 @@ import kotlinx.coroutines.launch
 class WarningOverlayService : Service() {
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
-    private var autoDismissJob: Job? = null
     private var sirenJob: Job? = null
+    private var gifWatchJob: Job? = null
     private var toneGenerator: ToneGenerator? = null
     private var imageLoader: ImageLoader? = null
 
@@ -50,12 +56,11 @@ class WarningOverlayService : Service() {
         startAsForegroundService()
         showOverlay()
         startSiren()
-        scheduleAutoDismiss()
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        autoDismissJob?.cancel()
+        gifWatchJob?.cancel()
         stopSiren()
         removeOverlay()
         super.onDestroy()
@@ -103,7 +108,13 @@ class WarningOverlayService : Service() {
         loader.enqueue(
             ImageRequest.Builder(this)
                 .data("file:///android_asset/$GIF_ASSET_FILE_NAME")
+                .repeatCount(GIF_REPEAT_COUNT)
                 .target(hand)
+                .listener(
+                    onSuccess = { _, result ->
+                        configureGifPlayback(result)
+                    },
+                )
                 .crossfade(false)
                 .build(),
         )
@@ -172,93 +183,40 @@ class WarningOverlayService : Service() {
         imageLoader = null
     }
 
-    private fun scheduleAutoDismiss() {
-        autoDismissJob?.cancel()
-        val dismissDelayMs = resolveAutoDismissDelayMs()
-        autoDismissJob = CoroutineScope(Dispatchers.Main.immediate).launch {
-            delay(dismissDelayMs)
+    private fun configureGifPlayback(result: SuccessResult) {
+        val drawable = result.drawable
+        val animatable = drawable as? Animatable ?: run {
             stopSelf()
+            return
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && drawable is AnimatedImageDrawable) {
+            drawable.registerAnimationCallback(
+                object : Animatable2.AnimationCallback() {
+                    override fun onAnimationEnd(drawable: Drawable?) {
+                        stopSelf()
+                    }
+                },
+            )
+        }
+        animatable.start()
+        watchGifAnimation(animatable)
     }
 
-    private fun resolveAutoDismissDelayMs(): Long {
-        val singleLoopMs = runCatching {
-            assets.open(GIF_ASSET_FILE_NAME).use { input ->
-                extractGifDurationMs(input.readBytes())
-            }
-        }.getOrNull()
-
-        return if (singleLoopMs != null) {
-            singleLoopMs * GIF_LOOP_COUNT_BEFORE_DISMISS
-        } else {
-            AUTO_DISMISS_MS
-        }
-    }
-
-    private fun extractGifDurationMs(gifBytes: ByteArray): Long? {
-        if (gifBytes.size < 10) return null
-        if (
-            gifBytes[0] != 'G'.code.toByte() ||
-            gifBytes[1] != 'I'.code.toByte() ||
-            gifBytes[2] != 'F'.code.toByte()
-        ) {
-            return null
-        }
-
-        var index = 13
-        if (gifBytes.size <= index) return null
-
-        val hasGlobalColorTable = (gifBytes[10].toInt() and 0x80) != 0
-        if (hasGlobalColorTable) {
-            val tableSize = 3 * (1 shl ((gifBytes[10].toInt() and 0x07) + 1))
-            index += tableSize
-        }
-
-        var totalDelayCs = 0L
-        while (index + 1 < gifBytes.size) {
-            when (gifBytes[index].toInt() and 0xFF) {
-                0x21 -> {
-                    val label = gifBytes[index + 1].toInt() and 0xFF
-                    if (label == 0xF9 && index + 7 < gifBytes.size && gifBytes[index + 2].toInt() == 0x04) {
-                        val delayLo = gifBytes[index + 4].toInt() and 0xFF
-                        val delayHi = gifBytes[index + 5].toInt() and 0xFF
-                        val delayCs = (delayHi shl 8) or delayLo
-                        totalDelayCs += if (delayCs <= 1) 10 else delayCs
-                        index += 8
-                    } else {
-                        index += 2
-                        while (index < gifBytes.size) {
-                            val blockSize = gifBytes[index].toInt() and 0xFF
-                            index += 1
-                            if (blockSize == 0) break
-                            index += blockSize
-                        }
-                    }
+    private fun watchGifAnimation(animatable: Animatable) {
+        gifWatchJob?.cancel()
+        gifWatchJob = CoroutineScope(Dispatchers.Main.immediate).launch {
+            var hasStarted = false
+            while (true) {
+                val running = animatable.isRunning
+                if (running) {
+                    hasStarted = true
+                } else if (hasStarted) {
+                    stopSelf()
+                    break
                 }
-                0x2C -> {
-                    if (index + 9 >= gifBytes.size) return null
-                    val packed = gifBytes[index + 9].toInt() and 0xFF
-                    index += 10
-                    val hasLocalColorTable = (packed and 0x80) != 0
-                    if (hasLocalColorTable) {
-                        val localTableSize = 3 * (1 shl ((packed and 0x07) + 1))
-                        index += localTableSize
-                    }
-                    if (index >= gifBytes.size) return null
-                    index += 1 // LZW minimum code size
-                    while (index < gifBytes.size) {
-                        val blockSize = gifBytes[index].toInt() and 0xFF
-                        index += 1
-                        if (blockSize == 0) break
-                        index += blockSize
-                    }
-                }
-                0x3B -> break
-                else -> return null
+                delay(GIF_WATCH_INTERVAL_MS)
             }
         }
-
-        return (totalDelayCs * 10).takeIf { it > 0 }
     }
 
     private fun startSiren() {
@@ -319,11 +277,11 @@ class WarningOverlayService : Service() {
     }
 
     companion object {
-        private const val AUTO_DISMISS_MS = 7_000L
         private const val CHANNEL_ID = "shortblocker_overlay_service"
         private const val NOTIFICATION_ID = 1101
         private const val GIF_ASSET_FILE_NAME = "jump.gif"
-        private const val GIF_LOOP_COUNT_BEFORE_DISMISS = 2L
+        private const val GIF_REPEAT_COUNT = 1
+        private const val GIF_WATCH_INTERVAL_MS = 50L
         private const val BASE_GIF_SIZE_DP = 320
         private const val GIF_SCALE = 2
         private const val OVERLAY_BOTTOM_MARGIN_DP = -32
