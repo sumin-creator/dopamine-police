@@ -7,6 +7,8 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
@@ -31,7 +33,7 @@ import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.PsychologyAlt
-import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -41,6 +43,7 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -63,11 +66,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.shortblocker.app.MainActivity
+import dev.shortblocker.app.R
 import dev.shortblocker.app.data.AppState
 import dev.shortblocker.app.data.DailyStats
 import dev.shortblocker.app.data.DemoPreset
@@ -81,7 +89,7 @@ import java.time.ZoneId
 
 private enum class AppTab(val route: String, val title: String, val icon: @Composable () -> Unit) {
     DASHBOARD("dashboard", "ホーム", { Icon(Icons.Outlined.Dashboard, contentDescription = null) }),
-    MONITOR("monitor", "設定", { Icon(Icons.Outlined.Visibility, contentDescription = null) });
+    MONITOR("monitor", "設定", { Icon(Icons.Outlined.Tune, contentDescription = null) });
 
     companion object {
         fun fromRoute(route: String?): AppTab =
@@ -207,7 +215,17 @@ fun ShortblockerApp(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Text("ドーパミン警察")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.logo),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                        Text("ドーパミン警察", fontWeight = FontWeight.ExtraBold)
+                    }
                 },
             )
         },
@@ -233,7 +251,6 @@ fun ShortblockerApp(
                 AppTab.DASHBOARD -> DashboardScreen(state = state)
                 AppTab.MONITOR -> MonitorScreen(
                     state = state,
-                    onRefresh = { viewModel.refreshRuntimeState(context) },
                     onRequestNotificationPermission = {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -254,12 +271,8 @@ fun ShortblockerApp(
                             },
                         )
                     },
-                    onThresholdChange = viewModel::updateThreshold,
-                    onCooldownChange = viewModel::updateCooldownMinutes,
+                    onDetectionMinutesChange = viewModel::updateCooldownMinutes,
                     onDailyGoalChange = viewModel::updateDailyGoalMinutes,
-                    onToggleAlerts = viewModel::toggleAlerts,
-                    onToggleService = viewModel::toggleSupportedService,
-                    onResetCooldown = viewModel::resetCooldown,
                 )
             }
         }
@@ -268,28 +281,166 @@ fun ShortblockerApp(
 
 @Composable
 private fun DashboardScreen(state: AppState) {
-    val stats = remember(state.sessionLogs, state.settings.dailyGoalMinutes) { state.dailyStats() }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            HeroCard(state = state, stats = stats)
-        }
-        item {
-            SummaryRow(stats = stats)
-        }
-        item {
             SectionCard(
-                title = "いまのひとこと",
-                subtitle = "短く確認",
+                title = "ホーム",
+                subtitle = " ",
             ) {
-                Text(
-                    text = state.liveMonitor.currentDialogue,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    HomeArtCard()
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HomeTile(
+                            title = "目標",
+                            value = "${state.settings.dailyGoalMinutes} min",
+                            modifier = Modifier.weight(1f),
+                            colorA = Color(0xFFFFD7EA),
+                            colorB = Color(0xFFFFEEF6),
+                        )
+                        HomeTile(
+                            title = "検知",
+                            value = "${state.settings.cooldownMinutes} min",
+                            modifier = Modifier.weight(1f),
+                            colorA = Color(0xFFD9F7F2),
+                            colorB = Color(0xFFEFFCF9),
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HomeTile(
+                            title = "状態",
+                            value = state.liveMonitor.warningLevel.label,
+                            modifier = Modifier.weight(1f),
+                            colorA = Color(0xFFFFEBCF),
+                            colorB = Color(0xFFFFF7EA),
+                        )
+                        HomeTile(
+                            title = "アプリ",
+                            value = state.foregroundAppName,
+                            modifier = Modifier.weight(1f),
+                            colorA = Color(0xFFE5E9FF),
+                            colorB = Color(0xFFF3F5FF),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeArtCard() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Color(0xFFFFD7EA), Color(0xFFD9F7F2), Color(0xFFE5E9FF)),
+                ),
+            )
+            .padding(14.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(132.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0x66FFFFFF))
+                    .padding(10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Canvas(modifier = Modifier.size(92.dp)) {
+                    val stroke = Stroke(width = 16f)
+                    drawArc(
+                        color = Color(0xFFEF6C9A),
+                        startAngle = -90f,
+                        sweepAngle = 210f,
+                        useCenter = false,
+                        style = stroke,
+                    )
+                    drawArc(
+                        color = Color(0xFF31A996),
+                        startAngle = 120f,
+                        sweepAngle = 95f,
+                        useCenter = false,
+                        style = stroke,
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.9f),
+                        radius = 26f,
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(132.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0x66FFFFFF))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(28.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFFF8FB9)),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF8FD8C9)),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(62.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF9CAFFF)),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFFFC37D)),
+                    )
+                }
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(36.dp),
+                ) {
+                    val color = Color(0xCCFFFFFF)
+                    val points = listOf(
+                        Offset(0f, size.height * 0.8f),
+                        Offset(size.width * 0.25f, size.height * 0.45f),
+                        Offset(size.width * 0.5f, size.height * 0.6f),
+                        Offset(size.width * 0.75f, size.height * 0.25f),
+                        Offset(size.width, size.height * 0.5f),
+                    )
+                    for (i in 0 until points.lastIndex) {
+                        drawLine(
+                            color = color,
+                            start = points[i],
+                            end = points[i + 1],
+                            strokeWidth = 6f,
+                        )
+                    }
+                }
             }
         }
     }
@@ -394,28 +545,29 @@ private fun HeroVisual(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .background(
-                brush = Brush.radialGradient(
+                brush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFFF855D),
-                        Color(0xFF58D7C5),
-                        MaterialTheme.colorScheme.surfaceVariant,
+                        Color(0xFFFFD7EA),
+                        Color(0xFFD9F7F2),
                     ),
                 ),
             ),
     ) {
         Box(
             modifier = Modifier
-                .align(Alignment.Center)
-                .size(78.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF0C1013)),
+                .align(Alignment.TopStart)
+                .padding(14.dp)
+                .size(width = 44.dp, height = 12.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFFFFFFFF)),
         )
         Box(
             modifier = Modifier
-                .align(Alignment.Center)
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF58D7C5)),
+                .align(Alignment.BottomEnd)
+                .padding(14.dp)
+                .size(width = 62.dp, height = 14.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFFFFFFFF)),
         )
     }
 }
@@ -453,52 +605,53 @@ private fun CharacterVisual(modifier: Modifier = Modifier) {
 @Composable
 private fun MonitorScreen(
     state: AppState,
-    onRefresh: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
     onOpenUsageSettings: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
-    onThresholdChange: (Int) -> Unit,
-    onCooldownChange: (Int) -> Unit,
+    onDetectionMinutesChange: (Int) -> Unit,
     onDailyGoalChange: (Int) -> Unit,
-    onToggleAlerts: () -> Unit,
-    onToggleService: (ServiceTarget) -> Unit,
-    onResetCooldown: () -> Unit,
 ) {
-    val live = state.liveMonitor
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
             SectionCard(
-                title = "現在の状態",
-                subtitle = "監視状態の確認",
+                title = "見守り設定",
+                subtitle = "必要な2つだけ",
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        MetricCard("利用中アプリ", state.foregroundAppName, modifier = Modifier.weight(1f))
-                        MetricCard("判定スコア", live.currentScore.toString(), modifier = Modifier.weight(1f))
-                        MetricCard("警告レベル", live.warningLevel.label, modifier = Modifier.weight(1f))
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusBadge(live.statusLabel, warningColor(live.warningLevel))
-                        InfoChip("視聴 ${live.sessionMinutes}分")
-                        InfoChip("連続スワイプ ${live.swipeBurst}")
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = onRefresh) { Text("状態を更新") }
-                        OutlinedButton(onClick = onResetCooldown) { Text("クールダウン解除") }
-                    }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusBadge("目標 ${state.settings.dailyGoalMinutes}分", Color(0xFFEF6C9A))
+                    StatusBadge("検知 ${state.settings.cooldownMinutes}分", Color(0xFF30A58F))
                 }
             }
         }
         item {
-            SectionCard(
-                title = "権限",
-                subtitle = "必要な権限の設定",
-            ) {
+            SectionCard(title = "時間の設定", subtitle = "シンプル設定") {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SettingSlider(
+                        label = "検知開始までの時間",
+                        value = state.settings.cooldownMinutes.toFloat(),
+                        valueRange = 1f..30f,
+                        steps = 28,
+                        display = "${state.settings.cooldownMinutes} min",
+                        onValueChange = { onDetectionMinutesChange(it.toInt()) },
+                    )
+                    SettingSlider(
+                        label = "1日の目標時間",
+                        value = state.settings.dailyGoalMinutes.toFloat(),
+                        valueRange = 10f..180f,
+                        steps = 16,
+                        display = "${state.settings.dailyGoalMinutes} min",
+                        onValueChange = { onDailyGoalChange(it.toInt()) },
+                    )
+                }
+            }
+        }
+        item {
+            SectionCard(title = "権限", subtitle = "時間設定の下で確認") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     PermissionRow("Accessibility Service", state.permissions.accessibility, onOpenAccessibilitySettings)
                     PermissionRow("Usage Stats", state.permissions.usageStats, onOpenUsageSettings)
@@ -509,58 +662,31 @@ private fun MonitorScreen(
                 }
             }
         }
-        item {
-            SectionCard(
-                title = "基本設定",
-                subtitle = "監視のしきい値と対象サービス",
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                    SettingSlider(
-                        label = "警告しきい値",
-                        value = state.settings.threshold.toFloat(),
-                        valueRange = 45f..85f,
-                        steps = 7,
-                        display = state.settings.threshold.toString(),
-                        onValueChange = { onThresholdChange(it.toInt()) },
-                    )
-                    SettingSlider(
-                        label = "クールダウン時間",
-                        value = state.settings.cooldownMinutes.toFloat(),
-                        valueRange = 1f..10f,
-                        steps = 8,
-                        display = "${state.settings.cooldownMinutes} min",
-                        onValueChange = { onCooldownChange(it.toInt()) },
-                    )
-                    SettingSlider(
-                        label = "1日の目標時間",
-                        value = state.settings.dailyGoalMinutes.toFloat(),
-                        valueRange = 10f..60f,
-                        steps = 9,
-                        display = "${state.settings.dailyGoalMinutes} min",
-                        onValueChange = { onDailyGoalChange(it.toInt()) },
-                    )
-                    FilterChip(
-                        selected = state.settings.alertsEnabled,
-                        onClick = onToggleAlerts,
-                        label = { Text(if (state.settings.alertsEnabled) "通知: オン" else "通知: オフ") },
-                        leadingIcon = { Icon(Icons.Outlined.NotificationsActive, contentDescription = null) },
-                    )
-                    Text(
-                        text = "対象サービス",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for (service in ServiceTarget.entries) {
-                            FilterChip(
-                                selected = state.settings.supportedApps.isEnabled(service),
-                                onClick = { onToggleService(service) },
-                                label = { Text(service.label) },
-                            )
-                        }
-                    }
-                }
-            }
+    }
+}
+
+@Composable
+private fun HomeTile(
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    colorA: Color,
+    colorB: Color,
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(colorA, colorB)))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.labelMedium, color = Color(0xFF5E5461))
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -760,9 +886,9 @@ private fun PermissionRow(title: String, granted: Boolean, onClick: () -> Unit) 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(14.dp),
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -770,7 +896,7 @@ private fun PermissionRow(title: String, granted: Boolean, onClick: () -> Unit) 
             Text(title, fontWeight = FontWeight.SemiBold)
             Text(
                 text = if (granted) "設定済み" else "未設定",
-                color = if (granted) Color(0xFF58D7C5) else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (granted) Color(0xFF23A26D) else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         OutlinedButton(onClick = onClick) {
@@ -788,12 +914,23 @@ private fun SettingSlider(
     display: String,
     onValueChange: (Float) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, fontWeight = FontWeight.SemiBold)
             Text(display, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Slider(value = value, onValueChange = onValueChange, valueRange = valueRange, steps = steps)
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            steps = steps,
+        )
     }
 }
 
@@ -805,13 +942,14 @@ private fun SectionCard(
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
             content = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)

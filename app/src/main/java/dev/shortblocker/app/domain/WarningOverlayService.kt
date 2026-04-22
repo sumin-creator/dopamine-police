@@ -23,7 +23,6 @@ import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
 import android.widget.FrameLayout
 import android.widget.ImageView
-import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
 import coil.ImageLoader
 import coil.decode.GifDecoder
@@ -72,24 +71,16 @@ class WarningOverlayService : Service() {
 
         val density = resources.displayMetrics.density
         val gifSizePx = (BASE_GIF_SIZE_DP * GIF_SCALE * density).toInt()
-        val sirenSizePx = (88 * density).toInt()
-        val marginPx = (4 * density).toInt()
+        val sirenSizePx = (140 * density).toInt()
         val bottomMarginPx = (OVERLAY_BOTTOM_MARGIN_DP * density).toInt()
-        val sirenOffsetPx = (SIREN_OFFSET_DP * density).toInt()
+        val sirenOverlapPx = (SIREN_OVERLAP_DP * density).toInt()
 
         val root = FrameLayout(this)
-
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(24, 24, 24, 24)
-        }
 
         val siren = ImageView(this).apply {
             setImageResource(R.drawable.ic_siren)
             imageTintList = null
             scaleType = ImageView.ScaleType.FIT_CENTER
-            translationY = sirenOffsetPx.toFloat()
         }
         val hand = ImageView(this).apply {
             adjustViewBounds = true
@@ -126,31 +117,20 @@ class WarningOverlayService : Service() {
         }
         siren.startAnimation(pulse)
 
-        content.addView(
-            siren,
-            LinearLayout.LayoutParams(sirenSizePx, sirenSizePx).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = marginPx
-            },
-        )
-        content.addView(
-            hand,
-            LinearLayout.LayoutParams(gifSizePx, gifSizePx).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-            },
-        )
-
         root.addView(
-            content,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-            ).apply {
+            hand,
+            FrameLayout.LayoutParams(gifSizePx, gifSizePx).apply {
                 gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
                 bottomMargin = bottomMarginPx
             },
         )
-
+        root.addView(
+            siren,
+            FrameLayout.LayoutParams(sirenSizePx, sirenSizePx).apply {
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                bottomMargin = bottomMarginPx + gifSizePx - sirenOverlapPx
+            },
+        )
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -285,7 +265,7 @@ class WarningOverlayService : Service() {
         private const val BASE_GIF_SIZE_DP = 320
         private const val GIF_SCALE = 2
         private const val OVERLAY_BOTTOM_MARGIN_DP = -32
-        private const val SIREN_OFFSET_DP = 20
+        private const val SIREN_OVERLAP_DP = 88
 
         fun canDrawOverlays(context: Context): Boolean {
             return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
