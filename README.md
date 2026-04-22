@@ -1,4 +1,4 @@
-# Shortblocker
+# ドーパミン警察
 `Prototype.md` をもとに、Web プロトタイプから `Kotlin + Android` アプリへ移行したプロジェクトです。
 
 ランタイムの主役は `app/` 配下の Android アプリです。Jetpack Compose で UI を構成し、`Accessibility Service` と `Usage Stats` と `Notification` アクションで短尺動画の見すぎ介入を行います。

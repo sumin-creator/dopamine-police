@@ -210,7 +210,7 @@ fun ShortblockerApp(
             CenterAlignedTopAppBar(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Shortblocker")
+                        Text("ドーパミン警察")
                         Text(
                             text = "Kotlin + Android migration",
                             style = MaterialTheme.typography.labelMedium,
