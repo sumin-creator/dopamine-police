@@ -15,9 +15,9 @@
         android:name=".ShortblockerApplication"
         android:allowBackup="true"
         android:fullBackupContent="false"
-        android:icon="@drawable/logo"
+        android:icon="@drawable/icon"
         android:label="@string/app_name"
-        android:roundIcon="@drawable/logo"
+        android:roundIcon="@drawable/icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.Shortblocker">
 
@@ -35,8 +35,8 @@
             android:name=".MainActivityPoliceVideoScan"
             android:enabled="true"
             android:exported="true"
-            android:icon="@drawable/logo"
-            android:roundIcon="@drawable/logo"
+            android:icon="@drawable/icon"
+            android:roundIcon="@drawable/icon"
             android:targetActivity=".SplashActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -48,8 +48,8 @@
             android:name=".MainActivitySirenPlayBlock"
             android:enabled="false"
             android:exported="true"
-            android:icon="@drawable/logo"
-            android:roundIcon="@drawable/logo"
+            android:icon="@drawable/icon"
+            android:roundIcon="@drawable/icon"
             android:targetActivity=".SplashActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -61,8 +61,8 @@
             android:name=".MainActivityCameraCheckpoint"
             android:enabled="false"
             android:exported="true"
-            android:icon="@drawable/logo"
-            android:roundIcon="@drawable/logo"
+            android:icon="@drawable/icon"
+            android:roundIcon="@drawable/icon"
             android:targetActivity=".SplashActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -74,8 +74,8 @@
             android:name=".MainActivityPatrolAlert"
             android:enabled="false"
             android:exported="true"
-            android:icon="@drawable/logo"
-            android:roundIcon="@drawable/logo"
+            android:icon="@drawable/icon"
+            android:roundIcon="@drawable/icon"
             android:targetActivity=".SplashActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -87,8 +87,8 @@
             android:name=".MainActivityShieldDetect"
             android:enabled="false"
             android:exported="true"
-            android:icon="@drawable/logo"
-            android:roundIcon="@drawable/logo"
+            android:icon="@drawable/icon"
+            android:roundIcon="@drawable/icon"
             android:targetActivity=".SplashActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -100,8 +100,8 @@
             android:name=".MainActivityRadarReel"
             android:enabled="false"
             android:exported="true"
-            android:icon="@drawable/logo"
-            android:roundIcon="@drawable/logo"
+            android:icon="@drawable/icon"
+            android:roundIcon="@drawable/icon"
             android:targetActivity=".SplashActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
