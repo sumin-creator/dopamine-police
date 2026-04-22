@@ -29,6 +29,12 @@ internal data class ScoreableShortsEvidence(
     val swipeBurst: Int,
 )
 
+internal data class ShortsSwipeState(
+    val swipeBurst: Int,
+    val lastCountedSwipeAt: Long,
+    val counted: Boolean,
+)
+
 class ShortVideoDetector {
     private val lateNightDialogues = listOf(
         "この時間のShorts、ほぼ事故だよ。",
@@ -298,14 +304,14 @@ class ShortVideoDetector {
         }
         val verticalScroll = isLikelyVerticalScroll(event)
         val continuingShortsScroll = verticalScroll && freshReliableEvidence
-        val swipeBurst = when {
-            continuingShortsScroll &&
-                now - baseSession.lastScrollAt <= SCROLL_BURST_WINDOW_MS -> baseSession.swipeBurst + 1
-
-            continuingShortsScroll -> 1
-            !freshReliableEvidence -> 0
-            else -> baseSession.swipeBurst
-        }
+        val swipeState = resolveShortsSwipeState(
+            currentSwipeBurst = baseSession.swipeBurst,
+            lastCountedSwipeAt = baseSession.lastCountedSwipeAt,
+            now = now,
+            freshReliableEvidence = freshReliableEvidence,
+            continuingShortsScroll = continuingShortsScroll,
+        )
+        val swipeBurst = swipeState.swipeBurst
         val lastTransitionAt = when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> now
             else -> baseSession.lastTransitionAt
@@ -322,8 +328,8 @@ class ShortVideoDetector {
             stage = stage,
             lastCandidateEvidenceAt = candidateEvidenceAt,
             lastReliableEvidenceAt = lastReliableEvidenceAt,
-            lastScrollAt = if (verticalScroll) now else baseSession.lastScrollAt,
-            lastTransitionAt = if (verticalScroll && freshReliableEvidence) now else lastTransitionAt,
+            lastCountedSwipeAt = swipeState.lastCountedSwipeAt,
+            lastTransitionAt = if (swipeState.counted) now else lastTransitionAt,
         )
         activeSession = updatedSession
 
@@ -373,6 +379,43 @@ class ShortVideoDetector {
             lastWarningTimes[packageName] = now
         }
         return decision.copy(shouldTrigger = shouldTrigger)
+    }
+
+    internal fun resolveShortsSwipeState(
+        currentSwipeBurst: Int,
+        lastCountedSwipeAt: Long,
+        now: Long,
+        freshReliableEvidence: Boolean,
+        continuingShortsScroll: Boolean,
+    ): ShortsSwipeState {
+        if (!freshReliableEvidence) {
+            return ShortsSwipeState(
+                swipeBurst = 0,
+                lastCountedSwipeAt = 0L,
+                counted = false,
+            )
+        }
+
+        val counted = continuingShortsScroll &&
+            (lastCountedSwipeAt == 0L || now - lastCountedSwipeAt >= SHORTS_SWIPE_DEBOUNCE_MS)
+        if (!counted) {
+            return ShortsSwipeState(
+                swipeBurst = currentSwipeBurst,
+                lastCountedSwipeAt = lastCountedSwipeAt,
+                counted = false,
+            )
+        }
+
+        val nextSwipeBurst = if (lastCountedSwipeAt != 0L && now - lastCountedSwipeAt <= SCROLL_BURST_WINDOW_MS) {
+            currentSwipeBurst + 1
+        } else {
+            1
+        }
+        return ShortsSwipeState(
+            swipeBurst = nextSwipeBurst,
+            lastCountedSwipeAt = now,
+            counted = true,
+        )
     }
 
     internal fun resolveScoreableShortsEvidence(
@@ -569,7 +612,7 @@ class ShortVideoDetector {
         val relaunchCount: Int,
         val swipeBurst: Int,
         val lastTransitionAt: Long,
-        val lastScrollAt: Long = 0L,
+        val lastCountedSwipeAt: Long = 0L,
         val keywordHits: Set<String>,
         val actionHints: Set<String>,
         val stage: DetectionStage,
@@ -597,6 +640,7 @@ class ShortVideoDetector {
     private companion object {
         const val TAG = "ShortDetector"
         const val SCROLL_BURST_WINDOW_MS = 20_000L
+        const val SHORTS_SWIPE_DEBOUNCE_MS = 900L
         const val SHORTS_CANDIDATE_TTL_MS = 20_000L
         const val SHORTS_EVIDENCE_TTL_MS = 12_000L
         const val WARNING_RATE_LIMIT_MS = 30_000L

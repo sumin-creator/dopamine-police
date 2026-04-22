@@ -198,4 +198,56 @@ class ShortVideoDetectorTest {
         assertEquals(setOf("like", "share"), evidence.actionHints)
         assertEquals(2, evidence.swipeBurst)
     }
+
+    @Test
+    fun repeatedScrollEventsWithinDebounceDoNotInflateShortsSwipes() {
+        val first = detector.resolveShortsSwipeState(
+            currentSwipeBurst = 0,
+            lastCountedSwipeAt = 0L,
+            now = 10_000L,
+            freshReliableEvidence = true,
+            continuingShortsScroll = true,
+        )
+        val duplicate = detector.resolveShortsSwipeState(
+            currentSwipeBurst = first.swipeBurst,
+            lastCountedSwipeAt = first.lastCountedSwipeAt,
+            now = 10_300L,
+            freshReliableEvidence = true,
+            continuingShortsScroll = true,
+        )
+
+        assertTrue(first.counted)
+        assertEquals(1, first.swipeBurst)
+        assertFalse(duplicate.counted)
+        assertEquals(1, duplicate.swipeBurst)
+    }
+
+    @Test
+    fun separatedScrollEventsIncrementShortsSwipes() {
+        val next = detector.resolveShortsSwipeState(
+            currentSwipeBurst = 1,
+            lastCountedSwipeAt = 10_000L,
+            now = 12_000L,
+            freshReliableEvidence = true,
+            continuingShortsScroll = true,
+        )
+
+        assertTrue(next.counted)
+        assertEquals(2, next.swipeBurst)
+    }
+
+    @Test
+    fun shortsSwipeBurstResetsWhenReliableEvidenceExpires() {
+        val next = detector.resolveShortsSwipeState(
+            currentSwipeBurst = 4,
+            lastCountedSwipeAt = 10_000L,
+            now = 12_000L,
+            freshReliableEvidence = false,
+            continuingShortsScroll = false,
+        )
+
+        assertFalse(next.counted)
+        assertEquals(0, next.swipeBurst)
+        assertEquals(0L, next.lastCountedSwipeAt)
+    }
 }
