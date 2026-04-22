@@ -5,4 +5,10 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:navigationBarColor">@color/shortblocker_bg</item>
     </style>
+
+    <style name="Theme.Shortblocker.Splash" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/white</item>
+    </style>
 </resources>

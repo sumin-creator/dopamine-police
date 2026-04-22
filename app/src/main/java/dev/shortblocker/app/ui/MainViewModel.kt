@@ -7,11 +7,13 @@ import androidx.lifecycle.viewModelScope
 import dev.shortblocker.app.data.AppState
 import dev.shortblocker.app.data.AppStateStore
 import dev.shortblocker.app.data.DemoPreset
+import dev.shortblocker.app.data.LauncherLogo
 import dev.shortblocker.app.data.MonitorSettings
 import dev.shortblocker.app.data.ServiceTarget
 import dev.shortblocker.app.data.UiFeature
 import dev.shortblocker.app.data.UserAction
 import dev.shortblocker.app.domain.DetectionDecision
+import dev.shortblocker.app.domain.LauncherIconManager
 import dev.shortblocker.app.domain.ShortVideoAccessibilityService
 import dev.shortblocker.app.domain.ShortVideoDetector
 import dev.shortblocker.app.domain.ShortblockerNotificationController
@@ -133,6 +135,17 @@ class MainViewModel(
 
     fun toggleSupportedService(target: ServiceTarget) {
         updateSettings { copy(supportedApps = supportedApps.toggle(target)) }
+    }
+
+    fun updateLauncherLogo(context: Context, logo: LauncherLogo) {
+        viewModelScope.launch {
+            store.updateSettings { current -> current.copy(launcherLogo = logo) }
+            LauncherIconManager.apply(context, logo)
+        }
+    }
+
+    fun syncLauncherLogo(context: Context) {
+        LauncherIconManager.apply(context, appState.value.settings.launcherLogo)
     }
 
     fun resetCooldown() {

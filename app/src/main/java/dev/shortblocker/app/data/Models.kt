@@ -94,6 +94,20 @@ enum class UiFeature(val label: String) {
     }
 }
 
+enum class LauncherLogo(val label: String) {
+    POLICE_VIDEO_SCAN("警察バッジ + 動画スキャン"),
+    SIREN_PLAY_BLOCK("サイレン + 再生ブロック"),
+    CAMERA_CHECKPOINT("検問カメラ + Shorts"),
+    PATROL_ALERT("パトカー警戒 + 縦動画"),
+    SHIELD_DETECT("シールド + 検知波形"),
+    RADAR_REEL("レーダー + リール停止");
+
+    companion object {
+        fun fromName(name: String?): LauncherLogo =
+            entries.firstOrNull { it.name == name } ?: POLICE_VIDEO_SCAN
+    }
+}
+
 data class SupportedApps(
     val youtube: Boolean = true,
     val instagram: Boolean = true,
@@ -119,6 +133,7 @@ data class MonitorSettings(
     val dailyGoalMinutes: Int = 25,
     val alertsEnabled: Boolean = true,
     val supportedApps: SupportedApps = SupportedApps(),
+    val launcherLogo: LauncherLogo = LauncherLogo.POLICE_VIDEO_SCAN,
 )
 
 data class PermissionSnapshot(

@@ -10,6 +10,7 @@
 - キャラクター介入通知と `今やめる / あと1分だけ / 無視する / 今日の目標を見る`
 - `DataStore` による `SessionLog` / `CharacterState` / 設定 / 監視状態の保存
 - ダッシュボード、監視設定、検知ラボ、仕様一覧の Android UI
+- ランチャーアイコンを `ドーパミン警察` テーマの 6 種から切替可能（警察/サイレン + ショート動画検知）
 
 ## ディレクトリ
 - `app/`: Android アプリ本体
@@ -36,6 +37,10 @@ app/build/outputs/apk/debug/app-debug.apk
 3. 通知権限
 
 監視状態は `Monitor` タブで確認できます。
+
+## ロゴ切替
+`Monitor` タブの `Trigger Policy & Settings` 内にある `App Icon` からロゴを切り替えできます。  
+インストール直後は `警察バッジ + 動画スキャン` がデフォルトで表示されます。
 
 ## 開発メモ
 - `MainActivity` が Compose UI の入口です

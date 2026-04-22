@@ -42,6 +42,7 @@ object AppStateJsonCodec {
         put("cooldownMinutes", settings.cooldownMinutes)
         put("dailyGoalMinutes", settings.dailyGoalMinutes)
         put("alertsEnabled", settings.alertsEnabled)
+        put("launcherLogo", settings.launcherLogo.name)
         put("supportedApps", JSONObject().apply {
             put("youtube", settings.supportedApps.youtube)
             put("instagram", settings.supportedApps.instagram)
@@ -54,6 +55,7 @@ object AppStateJsonCodec {
         cooldownMinutes = json?.optInt("cooldownMinutes", 4) ?: 4,
         dailyGoalMinutes = json?.optInt("dailyGoalMinutes", 25) ?: 25,
         alertsEnabled = json?.optBoolean("alertsEnabled", true) ?: true,
+        launcherLogo = LauncherLogo.fromName(json?.optString("launcherLogo")),
         supportedApps = SupportedApps(
             youtube = json?.optJSONObject("supportedApps")?.optBoolean("youtube", true) ?: true,
             instagram = json?.optJSONObject("supportedApps")?.optBoolean("instagram", true) ?: true,

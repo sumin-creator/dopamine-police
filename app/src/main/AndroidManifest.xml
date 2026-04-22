@@ -15,22 +15,99 @@
         android:name=".ShortblockerApplication"
         android:allowBackup="true"
         android:fullBackupContent="false"
-        android:icon="@drawable/ic_shortblocker"
+        android:icon="@drawable/logo"
         android:label="@string/app_name"
-        android:roundIcon="@drawable/ic_shortblocker"
+        android:roundIcon="@drawable/logo"
         android:supportsRtl="true"
         android:theme="@style/Theme.Shortblocker">
 
         <activity
+            android:name=".SplashActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Shortblocker.Splash" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop">
+            android:launchMode="singleTop" />
+
+        <activity-alias
+            android:name=".MainActivityPoliceVideoScan"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/logo"
+            android:roundIcon="@drawable/logo"
+            android:targetActivity=".SplashActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivitySirenPlayBlock"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/logo"
+            android:roundIcon="@drawable/logo"
+            android:targetActivity=".SplashActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivityCameraCheckpoint"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/logo"
+            android:roundIcon="@drawable/logo"
+            android:targetActivity=".SplashActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivityPatrolAlert"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/logo"
+            android:roundIcon="@drawable/logo"
+            android:targetActivity=".SplashActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivityShieldDetect"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/logo"
+            android:roundIcon="@drawable/logo"
+            android:targetActivity=".SplashActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivityRadarReel"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/logo"
+            android:roundIcon="@drawable/logo"
+            android:targetActivity=".SplashActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
         <receiver
             android:name=".domain.NotificationActionReceiver"
             android:exported="false" />

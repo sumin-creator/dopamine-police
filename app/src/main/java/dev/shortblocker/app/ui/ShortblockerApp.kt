@@ -71,6 +71,7 @@ import dev.shortblocker.app.MainActivity
 import dev.shortblocker.app.data.AppState
 import dev.shortblocker.app.data.DailyStats
 import dev.shortblocker.app.data.DemoPreset
+import dev.shortblocker.app.data.LauncherLogo
 import dev.shortblocker.app.data.ServiceTarget
 import dev.shortblocker.app.data.SessionLog
 import dev.shortblocker.app.data.UserAction
@@ -165,6 +166,7 @@ fun ShortblockerApp(
 
     LaunchedEffect(Unit) {
         viewModel.refreshRuntimeState(context)
+        viewModel.syncLauncherLogo(context)
     }
 
     if (state.pendingIntervention != null) {
@@ -267,6 +269,9 @@ fun ShortblockerApp(
                     onToggleAlerts = viewModel::toggleAlerts,
                     onToggleService = viewModel::toggleSupportedService,
                     onResetCooldown = viewModel::resetCooldown,
+                    onSelectLauncherLogo = { logo ->
+                        viewModel.updateLauncherLogo(context, logo)
+                    },
                 )
                 AppTab.LAB -> LabScreen(
                     state = state,
@@ -484,6 +489,7 @@ private fun MonitorScreen(
     onToggleAlerts: () -> Unit,
     onToggleService: (ServiceTarget) -> Unit,
     onResetCooldown: () -> Unit,
+    onSelectLauncherLogo: (LauncherLogo) -> Unit,
 ) {
     val live = state.liveMonitor
     LazyColumn(
@@ -578,6 +584,20 @@ private fun MonitorScreen(
                                 selected = state.settings.supportedApps.isEnabled(service),
                                 onClick = { onToggleService(service) },
                                 label = { Text(service.label) },
+                            )
+                        }
+                    }
+                    Text(
+                        text = "App Icon",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (logo in LauncherLogo.entries) {
+                            FilterChip(
+                                selected = state.settings.launcherLogo == logo,
+                                onClick = { onSelectLauncherLogo(logo) },
+                                label = { Text(logo.label) },
                             )
                         }
                     }
