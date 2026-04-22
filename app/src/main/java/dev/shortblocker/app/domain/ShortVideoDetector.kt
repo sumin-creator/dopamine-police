@@ -295,6 +295,7 @@ class ShortVideoDetector {
             permissions = permissions,
             now = now,
         )
+        android.util.Log.d("ShortDetector", "pkg=$packageName score=${decision.snapshot.score} trigger=${decision.shouldTrigger}")
         val recentWarning = lastWarningTimes[packageName] ?: 0L
         val shouldTrigger = decision.shouldTrigger && now - recentWarning > 30_000L
         if (shouldTrigger) {
