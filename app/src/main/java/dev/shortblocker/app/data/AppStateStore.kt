@@ -151,7 +151,7 @@ class AppStateStore(
         if (!state.settings.alertsEnabled) {
             return "監視停止"
         }
-        if (!state.permissions.allRequiredGranted) {
+        if (!state.permissions.canDetect) {
             return "権限待ち"
         }
         val target = ServiceTarget.fromPackage(packageName)

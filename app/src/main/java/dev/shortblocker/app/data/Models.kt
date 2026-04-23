@@ -141,6 +141,12 @@ data class PermissionSnapshot(
     val usageStats: Boolean = false,
     val notifications: Boolean = false,
 ) {
+    val canDetect: Boolean
+        get() = accessibility
+
+    val canIntervene: Boolean
+        get() = canDetect
+
     val allRequiredGranted: Boolean
         get() = accessibility && usageStats && notifications
 }
