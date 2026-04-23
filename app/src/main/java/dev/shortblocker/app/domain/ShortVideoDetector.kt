@@ -35,6 +35,32 @@ internal data class ShortsSwipeState(
     val counted: Boolean,
 )
 
+internal enum class ObservedEventType {
+    WINDOW_STATE_CHANGED,
+    WINDOW_CONTENT_CHANGED,
+    VIEW_SCROLLED,
+    OTHER,
+}
+
+internal data class EventSignals(
+    val texts: Set<String> = emptySet(),
+    val viewIds: Set<String> = emptySet(),
+    val classNames: Set<String> = emptySet(),
+) {
+    val normalizedText: String = texts.joinToString(separator = " ").lowercase(Locale.US)
+    val normalizedViewIds: String = viewIds.joinToString(separator = " ").lowercase(Locale.US)
+
+    fun isEmpty(): Boolean = texts.isEmpty() && viewIds.isEmpty() && classNames.isEmpty()
+}
+
+internal data class ObservedEvent(
+    val packageName: String,
+    val type: ObservedEventType,
+    val signals: EventSignals = EventSignals(),
+    val scrollDeltaX: Int = 0,
+    val scrollDeltaY: Int = 0,
+)
+
 class ShortVideoDetector {
     private val lateNightDialogues = listOf(
         "この時間のShorts、ほぼ事故だよ。",
@@ -85,7 +111,7 @@ class ShortVideoDetector {
     )
 
     private var activeSession: ActiveSession? = null
-    private val recentExitTimes = mutableMapOf<String, Long>()
+    private val recentRelaunchStates = mutableMapOf<String, RelaunchState>()
     private val lastWarningTimes = mutableMapOf<String, Long>()
 
     fun evaluateScenario(
@@ -171,7 +197,7 @@ class ShortVideoDetector {
             breakdown = breakdown,
             createdAtEpochMillis = now,
         )
-        val permissionsReady = !requirePermissions || permissions.allRequiredGranted
+        val permissionsReady = !requirePermissions || permissions.canIntervene
         val reliableShortVideoEvidence = hasReliableShortVideoEvidence(scenario)
         val interactionEvidence = scenario.swipeBurst >= REQUIRED_SHORTS_SWIPES
         val shouldTrigger = settings.alertsEnabled &&
@@ -191,8 +217,24 @@ class ShortVideoDetector {
         permissions: PermissionSnapshot,
         cooldownUntilEpochMillis: Long,
     ): DetectionDecision? {
-        val packageName = event.packageName?.toString() ?: return null
-        val now = System.currentTimeMillis()
+        val observedEvent = event.toObservedEvent() ?: return null
+        return processObservedEvent(
+            observedEvent = observedEvent,
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = cooldownUntilEpochMillis,
+            now = System.currentTimeMillis(),
+        )
+    }
+
+    internal fun processObservedEvent(
+        observedEvent: ObservedEvent,
+        settings: MonitorSettings,
+        permissions: PermissionSnapshot,
+        cooldownUntilEpochMillis: Long,
+        now: Long,
+    ): DetectionDecision? {
+        val packageName = observedEvent.packageName
         val timeBand = Instant.ofEpochMilli(now)
             .atZone(ZoneId.systemDefault())
             .let { TimeBand.fromHour(it.hour) }
@@ -200,7 +242,10 @@ class ShortVideoDetector {
 
         if (target != ServiceTarget.YOUTUBE) {
             activeSession?.let { active ->
-                recentExitTimes[active.packageName] = now
+                recentRelaunchStates[active.packageName] = RelaunchState(
+                    relaunchCount = active.relaunchCount,
+                    lastExitAt = now,
+                )
             }
             activeSession = null
             return DetectionDecision(
@@ -225,11 +270,11 @@ class ShortVideoDetector {
         }
 
         val existing = activeSession
-        val switchedApp = existing == null || existing.packageName != packageName
+        val switchedApp = existing?.packageName != packageName
         val relaunchCount = if (switchedApp) {
-            val lastExit = recentExitTimes[packageName] ?: 0L
-            if (now - lastExit <= 5 * 60_000L) {
-                (existing?.relaunchCount ?: 0) + 1
+            val relaunchState = recentRelaunchStates[packageName]
+            if (relaunchState != null && now - relaunchState.lastExitAt <= RELAUNCH_WINDOW_MS) {
+                relaunchState.relaunchCount + 1
             } else {
                 0
             }
@@ -247,51 +292,50 @@ class ShortVideoDetector {
                 keywordHits = emptySet(),
                 actionHints = emptySet(),
                 stage = DetectionStage.IDLE,
-                lastCandidateEvidenceAt = 0L,
+                lastKeywordEvidenceAt = 0L,
+                lastActionHintEvidenceAt = 0L,
                 lastReliableEvidenceAt = 0L,
             )
         } else {
             existing
         } ?: return null
 
-        val signals = collectSignals(event)
+        val signals = observedEvent.signals
         val currentKeywordHits = detectKeywords(target, signals).toSet()
         val currentActionHints = detectActionHints(signals).toSet()
-        val candidateKeywordHits = (baseSession.keywordHits + currentKeywordHits).toSet()
-        val candidateActionHints = (baseSession.actionHints + currentActionHints).toSet()
-        val currentCandidateEvidence = currentKeywordHits.isNotEmpty() || currentActionHints.isNotEmpty()
-        val candidateEvidenceAt = if (currentCandidateEvidence) {
-            now
-        } else {
-            baseSession.lastCandidateEvidenceAt
-        }
-        val freshCandidateEvidence = currentCandidateEvidence ||
-            now - baseSession.lastCandidateEvidenceAt <= SHORTS_CANDIDATE_TTL_MS
+        val keywordState = retainFreshHits(
+            currentHits = currentKeywordHits,
+            retainedHits = baseSession.keywordHits,
+            lastSeenAt = baseSession.lastKeywordEvidenceAt,
+            now = now,
+            ttlMs = SHORTS_KEYWORD_TTL_MS,
+        )
+        val actionHintState = retainFreshHits(
+            currentHits = currentActionHints,
+            retainedHits = baseSession.actionHints,
+            lastSeenAt = baseSession.lastActionHintEvidenceAt,
+            now = now,
+            ttlMs = SHORTS_ACTION_HINT_TTL_MS,
+        )
+        val keywordHits = keywordState.hits
+        val actionHints = actionHintState.hits
         val currentViewerEvidence = hasYoutubeShortsViewerEvidence(
             keywordHits = currentKeywordHits,
             actionHints = currentActionHints,
         )
-        val retainedViewerEvidence = freshCandidateEvidence && hasYoutubeShortsViewerEvidence(
-            keywordHits = candidateKeywordHits,
-            actionHints = candidateActionHints,
+        val retainedViewerEvidence = hasYoutubeShortsViewerEvidence(
+            keywordHits = keywordHits,
+            actionHints = actionHints,
         )
-        val reliableEvidenceObservedNow = currentCandidateEvidence && retainedViewerEvidence
+        val reliableEvidenceObservedNow = currentKeywordHits.isNotEmpty() && retainedViewerEvidence
         val freshReliableEvidence = reliableEvidenceObservedNow ||
-            now - baseSession.lastReliableEvidenceAt <= SHORTS_EVIDENCE_TTL_MS
+            isWithinWindow(baseSession.lastReliableEvidenceAt, now, SHORTS_EVIDENCE_TTL_MS)
         val lastReliableEvidenceAt = if (reliableEvidenceObservedNow) {
             now
         } else {
             baseSession.lastReliableEvidenceAt
         }
-        val keywordHits = when {
-            freshCandidateEvidence -> candidateKeywordHits
-            else -> emptySet()
-        }
-        val actionHints = when {
-            freshCandidateEvidence -> candidateActionHints
-            else -> emptySet()
-        }
-        val verticalScroll = isLikelyVerticalScroll(event)
+        val verticalScroll = isLikelyVerticalScroll(observedEvent)
         val continuingShortsScroll = verticalScroll && freshReliableEvidence
         val swipeState = resolveShortsSwipeState(
             currentSwipeBurst = baseSession.swipeBurst,
@@ -301,8 +345,8 @@ class ShortVideoDetector {
             continuingShortsScroll = continuingShortsScroll,
         )
         val swipeBurst = swipeState.swipeBurst
-        val lastTransitionAt = when (event.eventType) {
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> now
+        val lastTransitionAt = when (observedEvent.type) {
+            ObservedEventType.WINDOW_STATE_CHANGED -> now
             else -> baseSession.lastTransitionAt
         }
         val stage = when {
@@ -315,7 +359,8 @@ class ShortVideoDetector {
             keywordHits = keywordHits,
             actionHints = actionHints,
             stage = stage,
-            lastCandidateEvidenceAt = candidateEvidenceAt,
+            lastKeywordEvidenceAt = keywordState.lastSeenAt,
+            lastActionHintEvidenceAt = actionHintState.lastSeenAt,
             lastReliableEvidenceAt = lastReliableEvidenceAt,
             lastCountedSwipeAt = swipeState.lastCountedSwipeAt,
             lastTransitionAt = if (swipeState.counted) now else lastTransitionAt,
@@ -359,8 +404,7 @@ class ShortVideoDetector {
         )
         val recentWarning = lastWarningTimes[packageName] ?: 0L
         val shouldTrigger = decision.shouldTrigger && now - recentWarning > WARNING_RATE_LIMIT_MS
-        android.util.Log.d(
-            TAG,
+        logDebug(
             "pkg=$packageName stage=${stage.name} shortsSwipes=${scoreableEvidence.swipeBurst} " +
                 "score=${decision.snapshot.score} trigger=$shouldTrigger",
         )
@@ -502,12 +546,12 @@ class ShortVideoDetector {
             )
     }
 
-    private fun isLikelyVerticalScroll(event: AccessibilityEvent): Boolean {
-        if (event.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+    private fun isLikelyVerticalScroll(observedEvent: ObservedEvent): Boolean {
+        if (observedEvent.type != ObservedEventType.VIEW_SCROLLED) {
             return false
         }
-        val horizontalDelta = event.scrollDeltaX
-        val verticalDelta = event.scrollDeltaY
+        val horizontalDelta = observedEvent.scrollDeltaX
+        val verticalDelta = observedEvent.scrollDeltaY
         if (horizontalDelta == 0 && verticalDelta == 0) {
             return true
         }
@@ -530,6 +574,52 @@ class ShortVideoDetector {
             viewIds = nodeSignals.viewIds,
             classNames = eventClassNames + nodeSignals.classNames,
         )
+    }
+
+    private fun AccessibilityEvent.toObservedEvent(): ObservedEvent? {
+        val safePackageName = packageName?.toString() ?: return null
+        return ObservedEvent(
+            packageName = safePackageName,
+            type = when (eventType) {
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> ObservedEventType.WINDOW_STATE_CHANGED
+                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> ObservedEventType.WINDOW_CONTENT_CHANGED
+                AccessibilityEvent.TYPE_VIEW_SCROLLED -> ObservedEventType.VIEW_SCROLLED
+                else -> ObservedEventType.OTHER
+            },
+            signals = collectSignals(this),
+            scrollDeltaX = scrollDeltaX,
+            scrollDeltaY = scrollDeltaY,
+        )
+    }
+
+    private fun retainFreshHits(
+        currentHits: Set<String>,
+        retainedHits: Set<String>,
+        lastSeenAt: Long,
+        now: Long,
+        ttlMs: Long,
+    ): RetainedHitsState {
+        val updatedLastSeenAt = if (currentHits.isNotEmpty()) now else lastSeenAt
+        val fresh = currentHits.isNotEmpty() || isWithinWindow(lastSeenAt, now, ttlMs)
+        return if (fresh) {
+            RetainedHitsState(
+                hits = (retainedHits + currentHits).toSet(),
+                lastSeenAt = updatedLastSeenAt,
+            )
+        } else {
+            RetainedHitsState(
+                hits = emptySet(),
+                lastSeenAt = 0L,
+            )
+        }
+    }
+
+    private fun isWithinWindow(lastSeenAt: Long, now: Long, ttlMs: Long): Boolean {
+        return lastSeenAt != 0L && now - lastSeenAt <= ttlMs
+    }
+
+    private fun logDebug(message: String) {
+        runCatching { android.util.Log.d(TAG, message) }
     }
 
     @Suppress("DEPRECATION")
@@ -605,8 +695,19 @@ class ShortVideoDetector {
         val keywordHits: Set<String>,
         val actionHints: Set<String>,
         val stage: DetectionStage,
-        val lastCandidateEvidenceAt: Long,
+        val lastKeywordEvidenceAt: Long,
+        val lastActionHintEvidenceAt: Long,
         val lastReliableEvidenceAt: Long,
+    )
+
+    private data class RelaunchState(
+        val relaunchCount: Int,
+        val lastExitAt: Long,
+    )
+
+    private data class RetainedHitsState(
+        val hits: Set<String>,
+        val lastSeenAt: Long,
     )
 
     private enum class DetectionStage {
@@ -615,24 +716,15 @@ class ShortVideoDetector {
         WATCHING_SHORTS,
     }
 
-    private data class EventSignals(
-        val texts: Set<String> = emptySet(),
-        val viewIds: Set<String> = emptySet(),
-        val classNames: Set<String> = emptySet(),
-    ) {
-        val normalizedText: String = texts.joinToString(separator = " ").lowercase(Locale.US)
-        val normalizedViewIds: String = viewIds.joinToString(separator = " ").lowercase(Locale.US)
-
-        fun isEmpty(): Boolean = texts.isEmpty() && viewIds.isEmpty() && classNames.isEmpty()
-    }
-
     private companion object {
         const val TAG = "ShortDetector"
         const val SCROLL_BURST_WINDOW_MS = 20_000L
         const val SHORTS_SWIPE_DEBOUNCE_MS = 900L
-        const val SHORTS_CANDIDATE_TTL_MS = 20_000L
+        const val SHORTS_KEYWORD_TTL_MS = 20_000L
+        const val SHORTS_ACTION_HINT_TTL_MS = 12_000L
         const val SHORTS_EVIDENCE_TTL_MS = 12_000L
         const val WARNING_RATE_LIMIT_MS = 30_000L
+        const val RELAUNCH_WINDOW_MS = 5 * 60_000L
         const val REQUIRED_SHORTS_SWIPES = 2
         const val MIN_ACTION_RAIL_HINTS = 2
         const val MAX_NODE_DEPTH = 5

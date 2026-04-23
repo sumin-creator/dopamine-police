@@ -250,4 +250,214 @@ class ShortVideoDetectorTest {
         assertEquals(0, next.swipeBurst)
         assertEquals(0L, next.lastCountedSwipeAt)
     }
+
+    @Test
+    fun actionHintsAloneDoNotRefreshReliableShortsEvidence() {
+        val base = 100_000L
+        detector.processObservedEvent(
+            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base,
+        )
+
+        detector.processObservedEvent(
+            observedEvent(texts = setOf("Like", "Share", "Save")),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 13_000L,
+        )
+
+        val decision = detector.processObservedEvent(
+            observedScrollEvent(now = base + 13_100L),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 13_100L,
+        )!!
+
+        assertEquals(0, decision.snapshot.swipeBurst)
+        assertTrue(decision.snapshot.keywordHits.isEmpty())
+        assertFalse(decision.shouldTrigger)
+    }
+
+    @Test
+    fun relaunchCountAccumulatesAcrossQuickReentries() {
+        val base = 100_000L
+        val firstEntry = detector.processObservedEvent(
+            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base,
+        )!!
+        detector.processObservedEvent(
+            observedEvent(packageName = "com.example.maps"),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 1_000L,
+        )
+        val secondEntry = detector.processObservedEvent(
+            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 2_000L,
+        )!!
+        detector.processObservedEvent(
+            observedEvent(packageName = "com.example.maps"),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 3_000L,
+        )
+        val thirdEntry = detector.processObservedEvent(
+            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 4_000L,
+        )!!
+
+        assertEquals(0, firstEntry.snapshot.relaunchCount)
+        assertEquals(1, secondEntry.snapshot.relaunchCount)
+        assertEquals(2, thirdEntry.snapshot.relaunchCount)
+    }
+
+    @Test
+    fun cooldownSuppressesTriggerEvenWhenShortsSequenceScoresHigh() {
+        val base = 100_000L
+        detector.processObservedEvent(
+            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = base + 30_000L,
+            now = base,
+        )
+        detector.processObservedEvent(
+            observedScrollEvent(now = base + 1_000L),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = base + 30_000L,
+            now = base + 1_000L,
+        )
+        val decision = detector.processObservedEvent(
+            observedScrollEvent(now = base + 2_500L),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = base + 30_000L,
+            now = base + 2_500L,
+        )!!
+
+        assertTrue(decision.snapshot.score >= settings.threshold)
+        assertFalse(decision.shouldTrigger)
+    }
+
+    @Test
+    fun rateLimitBlocksImmediateRepeatTrigger() {
+        val base = 100_000L
+        detector.processObservedEvent(
+            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base,
+        )
+        detector.processObservedEvent(
+            observedScrollEvent(now = base + 1_000L),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 1_000L,
+        )
+        val firstTrigger = detector.processObservedEvent(
+            observedScrollEvent(now = base + 2_500L),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 2_500L,
+        )!!
+        val secondDecision = detector.processObservedEvent(
+            observedScrollEvent(now = base + 4_000L),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 4_000L,
+        )!!
+
+        assertTrue(firstTrigger.shouldTrigger)
+        assertTrue(secondDecision.snapshot.score >= settings.threshold)
+        assertFalse(secondDecision.shouldTrigger)
+    }
+
+    @Test
+    fun missingNotificationAndUsageStatsPermissionsDoNotBlockTrigger() {
+        val base = 100_000L
+        val limitedPermissions = PermissionSnapshot(
+            accessibility = true,
+            usageStats = false,
+            notifications = false,
+        )
+
+        detector.processObservedEvent(
+            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            settings = settings,
+            permissions = limitedPermissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base,
+        )
+        detector.processObservedEvent(
+            observedScrollEvent(now = base + 1_000L),
+            settings = settings,
+            permissions = limitedPermissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 1_000L,
+        )
+        val decision = detector.processObservedEvent(
+            observedScrollEvent(now = base + 2_500L),
+            settings = settings,
+            permissions = limitedPermissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 2_500L,
+        )!!
+
+        assertTrue(decision.snapshot.score >= settings.threshold)
+        assertTrue(decision.shouldTrigger)
+    }
+
+    private fun observedEvent(
+        packageName: String = ServiceTarget.YOUTUBE.packageName,
+        type: ObservedEventType = ObservedEventType.WINDOW_CONTENT_CHANGED,
+        texts: Set<String> = emptySet(),
+        viewIds: Set<String> = emptySet(),
+        classNames: Set<String> = emptySet(),
+        scrollDeltaX: Int = 0,
+        scrollDeltaY: Int = 0,
+    ): ObservedEvent {
+        return ObservedEvent(
+            packageName = packageName,
+            type = type,
+            signals = EventSignals(
+                texts = texts,
+                viewIds = viewIds,
+                classNames = classNames,
+            ),
+            scrollDeltaX = scrollDeltaX,
+            scrollDeltaY = scrollDeltaY,
+        )
+    }
+
+    private fun observedScrollEvent(
+        now: Long,
+        packageName: String = ServiceTarget.YOUTUBE.packageName,
+    ): ObservedEvent {
+        return observedEvent(
+            packageName = packageName,
+            type = ObservedEventType.VIEW_SCROLLED,
+            scrollDeltaY = 160,
+        )
+    }
 }
