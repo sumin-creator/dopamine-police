@@ -421,6 +421,69 @@ class ShortVideoDetectorTest {
         assertTrue(decision.shouldTrigger)
     }
 
+    @Test
+    fun inactiveMediaPlaybackBlocksTriggerWhenSignalIsAvailable() {
+        val decision = detector.evaluateScenario(
+            scenario = DetectionScenario(
+                appName = "YouTube",
+                packageName = ServiceTarget.YOUTUBE.packageName,
+                timeBand = TimeBand.LATE_NIGHT,
+                sessionMinutes = 18,
+                relaunchCount = 1,
+                swipeBurst = 0,
+                dwellSeconds = 20,
+                reentryAfterWarning = false,
+                keywords = listOf("Shorts"),
+                uiFeatures = listOf(
+                    UiFeature.FULLSCREEN_VERTICAL,
+                    UiFeature.ACTION_RAIL,
+                    UiFeature.VIDEO_STRUCTURE,
+                ),
+                note = "Shorts-like UI while playback is inactive",
+                mediaPlaybackActive = false,
+            ),
+            settings = settings,
+            cooldownUntilEpochMillis = 0L,
+            requirePermissions = true,
+            permissions = permissions,
+            now = 1_000L,
+        )
+
+        assertTrue(decision.snapshot.score >= settings.threshold)
+        assertFalse(decision.shouldTrigger)
+    }
+
+    @Test
+    fun unknownMediaPlaybackDoesNotBlockTrigger() {
+        val decision = detector.evaluateScenario(
+            scenario = DetectionScenario(
+                appName = "YouTube",
+                packageName = ServiceTarget.YOUTUBE.packageName,
+                timeBand = TimeBand.LATE_NIGHT,
+                sessionMinutes = 18,
+                relaunchCount = 1,
+                swipeBurst = 0,
+                dwellSeconds = 20,
+                reentryAfterWarning = false,
+                keywords = listOf("Shorts"),
+                uiFeatures = listOf(
+                    UiFeature.FULLSCREEN_VERTICAL,
+                    UiFeature.ACTION_RAIL,
+                    UiFeature.VIDEO_STRUCTURE,
+                ),
+                note = "Shorts-like UI while MediaSession is unavailable",
+                mediaPlaybackActive = null,
+            ),
+            settings = settings,
+            cooldownUntilEpochMillis = 0L,
+            requirePermissions = true,
+            permissions = permissions,
+            now = 1_000L,
+        )
+
+        assertTrue(decision.shouldTrigger)
+    }
+
     private fun observedEvent(
         packageName: String = ServiceTarget.YOUTUBE.packageName,
         type: ObservedEventType = ObservedEventType.WINDOW_CONTENT_CHANGED,

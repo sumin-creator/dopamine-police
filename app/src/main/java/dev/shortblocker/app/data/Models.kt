@@ -140,6 +140,7 @@ data class PermissionSnapshot(
     val accessibility: Boolean = false,
     val usageStats: Boolean = false,
     val notifications: Boolean = false,
+    val mediaSessionListener: Boolean = false,
 ) {
     val canDetect: Boolean
         get() = accessibility
@@ -200,6 +201,7 @@ data class DetectionScenario(
     val keywords: List<String>,
     val uiFeatures: List<UiFeature>,
     val note: String,
+    val mediaPlaybackActive: Boolean? = null,
 )
 
 data class DetectionBreakdown(
@@ -256,7 +258,7 @@ data class LiveMonitorState(
     val currentScore: Int = 0,
     val warningLevel: WarningLevel = WarningLevel.WATCH,
     val statusLabel: String = "権限待ち",
-    val currentDialogue: String = "Accessibility Service と Usage Stats を有効化すると監視が始まります。",
+    val currentDialogue: String = "Accessibility Service を有効化すると監視が始まります。MediaSession は精度向上用です。",
     val sessionMinutes: Int = 0,
     val relaunchCount: Int = 0,
     val swipeBurst: Int = 0,

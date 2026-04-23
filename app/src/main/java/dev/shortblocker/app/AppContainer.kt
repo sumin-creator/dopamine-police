@@ -2,6 +2,7 @@ package dev.shortblocker.app
 
 import android.content.Context
 import dev.shortblocker.app.data.AppStateStore
+import dev.shortblocker.app.domain.MediaSessionPlaybackObserver
 import dev.shortblocker.app.domain.ShortVideoDetector
 import dev.shortblocker.app.domain.ShortblockerNotificationController
 import kotlinx.coroutines.CoroutineScope
@@ -14,5 +15,6 @@ class AppContainer(context: Context) {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val store = AppStateStore(appContext, applicationScope)
     val detector = ShortVideoDetector()
+    val mediaPlaybackObserver = MediaSessionPlaybackObserver(appContext)
     val notificationController = ShortblockerNotificationController(appContext)
 }

@@ -271,6 +271,9 @@ fun ShortblockerApp(
                             },
                         )
                     },
+                    onOpenMediaSessionSettings = {
+                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    },
                     onDetectionMinutesChange = viewModel::updateCooldownMinutes,
                     onDailyGoalChange = viewModel::updateDailyGoalMinutes,
                 )
@@ -609,6 +612,7 @@ private fun MonitorScreen(
     onOpenAccessibilitySettings: () -> Unit,
     onOpenUsageSettings: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
+    onOpenMediaSessionSettings: () -> Unit,
     onDetectionMinutesChange: (Int) -> Unit,
     onDailyGoalChange: (Int) -> Unit,
 ) {
@@ -620,7 +624,7 @@ private fun MonitorScreen(
         item {
             SectionCard(
                 title = "見守り設定",
-                subtitle = "必要な2つだけ",
+                subtitle = "補助信号は任意",
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     StatusBadge("目標 ${state.settings.dailyGoalMinutes}分", Color(0xFFEF6C9A))
@@ -655,6 +659,7 @@ private fun MonitorScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     PermissionRow("Accessibility Service", state.permissions.accessibility, onOpenAccessibilitySettings)
                     PermissionRow("Usage Stats", state.permissions.usageStats, onOpenUsageSettings)
+                    PermissionRow("MediaSession Listener", state.permissions.mediaSessionListener, onOpenMediaSessionSettings)
                     PermissionRow("Notifications", state.permissions.notifications, onOpenNotificationSettings)
                     OutlinedButton(onClick = onRequestNotificationPermission) {
                         Text("通知権限を再リクエスト")

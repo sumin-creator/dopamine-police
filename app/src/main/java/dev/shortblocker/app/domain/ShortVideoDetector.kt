@@ -187,11 +187,13 @@ class ShortVideoDetector {
             createdAtEpochMillis = now,
         )
         val permissionsReady = !requirePermissions || permissions.canIntervene
+        val mediaPlaybackReady = scenario.mediaPlaybackActive != false
         val reliableShortVideoEvidence = hasReliableShortVideoEvidence(scenario)
         val shouldTrigger = settings.alertsEnabled &&
             youtubeRuntimeTarget &&
             permissionsReady &&
             now >= cooldownUntilEpochMillis &&
+            mediaPlaybackReady &&
             reliableShortVideoEvidence &&
             total >= settings.threshold
 
@@ -203,6 +205,7 @@ class ShortVideoDetector {
         settings: MonitorSettings,
         permissions: PermissionSnapshot,
         cooldownUntilEpochMillis: Long,
+        mediaPlaybackActive: Boolean? = null,
     ): DetectionDecision? {
         val observedEvent = event.toObservedEvent() ?: return null
         return processObservedEvent(
@@ -210,6 +213,7 @@ class ShortVideoDetector {
             settings = settings,
             permissions = permissions,
             cooldownUntilEpochMillis = cooldownUntilEpochMillis,
+            mediaPlaybackActive = mediaPlaybackActive,
             now = System.currentTimeMillis(),
         )
     }
@@ -219,6 +223,7 @@ class ShortVideoDetector {
         settings: MonitorSettings,
         permissions: PermissionSnapshot,
         cooldownUntilEpochMillis: Long,
+        mediaPlaybackActive: Boolean? = null,
         now: Long,
     ): DetectionDecision? {
         val packageName = observedEvent.packageName
@@ -379,7 +384,8 @@ class ShortVideoDetector {
             reentryAfterWarning = updatedSession.relaunchCount > 0,
             keywords = scoreableEvidence.keywordHits.toList(),
             uiFeatures = uiFeatures,
-            note = "YouTube Shorts stage=${stage.name}",
+            note = "YouTube Shorts stage=${stage.name} media=${mediaPlaybackLabel(mediaPlaybackActive)}",
+            mediaPlaybackActive = mediaPlaybackActive,
         )
         val decision = evaluateScenario(
             scenario = scenario,
@@ -393,7 +399,7 @@ class ShortVideoDetector {
         val shouldTrigger = decision.shouldTrigger && now - recentWarning > WARNING_RATE_LIMIT_MS
         logDebug(
             "pkg=$packageName stage=${stage.name} shortsSwipes=${scoreableEvidence.swipeBurst} " +
-                "score=${decision.snapshot.score} trigger=$shouldTrigger",
+                "media=${mediaPlaybackLabel(mediaPlaybackActive)} score=${decision.snapshot.score} trigger=$shouldTrigger",
         )
         if (shouldTrigger) {
             lastWarningTimes[packageName] = now
@@ -679,6 +685,12 @@ class ShortVideoDetector {
             }
         }
         return pool[seed.mod(pool.size)]
+    }
+
+    private fun mediaPlaybackLabel(mediaPlaybackActive: Boolean?): String = when (mediaPlaybackActive) {
+        true -> "playing"
+        false -> "inactive"
+        null -> "unknown"
     }
 
     private data class ActiveSession(
