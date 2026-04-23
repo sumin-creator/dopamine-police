@@ -187,13 +187,11 @@ class ShortVideoDetector {
             createdAtEpochMillis = now,
         )
         val permissionsReady = !requirePermissions || permissions.canIntervene
-        val mediaPlaybackReady = scenario.mediaPlaybackActive != false
         val reliableShortVideoEvidence = hasReliableShortVideoEvidence(scenario)
         val shouldTrigger = settings.alertsEnabled &&
             youtubeRuntimeTarget &&
             permissionsReady &&
             now >= cooldownUntilEpochMillis &&
-            mediaPlaybackReady &&
             reliableShortVideoEvidence &&
             total >= settings.threshold
 

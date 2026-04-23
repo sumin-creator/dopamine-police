@@ -51,7 +51,7 @@ object AppStateJsonCodec {
     }
 
     private fun decodeSettings(json: JSONObject?): MonitorSettings = MonitorSettings(
-        threshold = json?.optInt("threshold", 62) ?: 62,
+        threshold = 55,
         cooldownMinutes = json?.optInt("cooldownMinutes", 4) ?: 4,
         dailyGoalMinutes = json?.optInt("dailyGoalMinutes", 25) ?: 25,
         alertsEnabled = json?.optBoolean("alertsEnabled", true) ?: true,

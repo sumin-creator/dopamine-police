@@ -16,7 +16,16 @@ import dev.shortblocker.app.data.PermissionSnapshot
 
 fun Context.buildPermissionSnapshot(
     serviceClass: Class<out AccessibilityService>,
-    notificationListenerClass: Class<out NotificationListenerService> = ShortblockerMediaSessionListenerService::class.java,
+): PermissionSnapshot {
+    return buildPermissionSnapshot(
+        serviceClass = serviceClass,
+        notificationListenerClass = ShortblockerMediaSessionListenerService::class.java,
+    )
+}
+
+fun Context.buildPermissionSnapshot(
+    serviceClass: Class<out AccessibilityService>,
+    notificationListenerClass: Class<out NotificationListenerService>,
 ): PermissionSnapshot {
     return PermissionSnapshot(
         accessibility = isAccessibilityServiceEnabled(serviceClass),

@@ -61,7 +61,7 @@ flowchart TD
 
 | Item | Current value | Meaning |
 | --- | --- | --- |
-| `threshold` | `62` | 通知候補になるスコア閾値 |
+| `threshold` | `55` | 通知候補になるスコア閾値 |
 | `REQUIRED_SHORTS_SWIPES` | `2` | `CONTINUOUS_TRANSITIONS` 表示用の目安 |
 | `MIN_ACTION_RAIL_HINTS` | `2` | viewer evidence に必要な action hint 数 |
 | `SHORTS_KEYWORD_TTL_MS` | `20_000` | Shorts surface hint の保持時間 |

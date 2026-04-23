@@ -422,7 +422,7 @@ class ShortVideoDetectorTest {
     }
 
     @Test
-    fun inactiveMediaPlaybackBlocksTriggerWhenSignalIsAvailable() {
+    fun inactiveMediaPlaybackDoesNotBlockTriggerWhenUiEvidenceIsStrong() {
         val decision = detector.evaluateScenario(
             scenario = DetectionScenario(
                 appName = "YouTube",
@@ -450,7 +450,7 @@ class ShortVideoDetectorTest {
         )
 
         assertTrue(decision.snapshot.score >= settings.threshold)
-        assertFalse(decision.shouldTrigger)
+        assertTrue(decision.shouldTrigger)
     }
 
     @Test
