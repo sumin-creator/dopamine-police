@@ -1,5 +1,6 @@
 package dev.shortblocker.app.domain
 
+import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import dev.shortblocker.app.data.DetectionBreakdown
@@ -46,12 +47,43 @@ internal data class EventSignals(
     val texts: Set<String> = emptySet(),
     val viewIds: Set<String> = emptySet(),
     val classNames: Set<String> = emptySet(),
+    val nodes: List<SignalNode> = emptyList(),
 ) {
-    val normalizedText: String = texts.joinToString(separator = " ").lowercase(Locale.US)
-    val normalizedViewIds: String = viewIds.joinToString(separator = " ").lowercase(Locale.US)
+    private val aggregatedTexts: Set<String> = (texts + nodes.mapNotNull { it.text }).toSet()
+    private val aggregatedViewIds: Set<String> = (viewIds + nodes.mapNotNull { it.viewId }).toSet()
 
-    fun isEmpty(): Boolean = texts.isEmpty() && viewIds.isEmpty() && classNames.isEmpty()
+    val normalizedText: String = aggregatedTexts.joinToString(separator = " ").lowercase(Locale.US)
+    val normalizedViewIds: String = aggregatedViewIds.joinToString(separator = " ").lowercase(Locale.US)
+
+    fun isEmpty(): Boolean = aggregatedTexts.isEmpty() && aggregatedViewIds.isEmpty() && classNames.isEmpty()
 }
+
+internal data class SignalNode(
+    val text: String? = null,
+    val viewId: String? = null,
+    val className: String? = null,
+    val left: Int? = null,
+    val top: Int? = null,
+    val right: Int? = null,
+    val bottom: Int? = null,
+) {
+    val normalizedText: String = text?.lowercase(Locale.US).orEmpty()
+    val normalizedViewId: String = viewId?.lowercase(Locale.US).orEmpty()
+    val hasBounds: Boolean = left != null && top != null && right != null && bottom != null
+
+    val centerX: Int?
+        get() = if (hasBounds) ((left ?: 0) + (right ?: 0)) / 2 else null
+
+    val centerY: Int?
+        get() = if (hasBounds) ((top ?: 0) + (bottom ?: 0)) / 2 else null
+}
+
+internal data class ViewerSurfaceSignals(
+    val keywordHits: Set<String> = emptySet(),
+    val actionHints: Set<String> = emptySet(),
+    val viewerEvidence: Boolean = false,
+    val normalVideoUiDetected: Boolean = false,
+)
 
 internal data class ObservedEvent(
     val packageName: String,
@@ -108,6 +140,27 @@ class ShortVideoDetector {
         "short",
         "shorts",
         "reel",
+    )
+    private val youtubeStandardVideoHints = listOf(
+        "play",
+        "pause",
+        "fullscreen",
+        "full screen",
+        "全画面",
+        "字幕",
+        "captions",
+        "autoplay",
+        "miniplayer",
+        "chapter",
+        "チャプター",
+        "seek",
+    )
+    private val youtubeStandardVideoViewIdHints = listOf(
+        "fullscreen",
+        "player_control",
+        "play_pause",
+        "seek_bar",
+        "miniplayer",
     )
 
     private var activeSession: ActiveSession? = null
@@ -291,39 +344,66 @@ class ShortVideoDetector {
         } ?: return null
 
         val signals = observedEvent.signals
-        val currentKeywordHits = detectKeywords(target, signals).toSet()
-        val currentActionHints = detectActionHints(signals).toSet()
-        val keywordState = retainFreshHits(
-            currentHits = currentKeywordHits,
-            retainedHits = baseSession.keywordHits,
-            lastSeenAt = baseSession.lastKeywordEvidenceAt,
-            now = now,
-            ttlMs = SHORTS_KEYWORD_TTL_MS,
+        val rawKeywordHits = detectKeywords(target, signals).toSet()
+        val rawActionHints = detectActionHints(signals).toSet()
+        val surfaceSignals = analyzeYoutubeViewerSurface(
+            signals = signals,
+            rawKeywordHits = rawKeywordHits,
+            rawActionHints = rawActionHints,
         )
-        val actionHintState = retainFreshHits(
-            currentHits = currentActionHints,
-            retainedHits = baseSession.actionHints,
-            lastSeenAt = baseSession.lastActionHintEvidenceAt,
-            now = now,
-            ttlMs = SHORTS_ACTION_HINT_TTL_MS,
-        )
+        val currentKeywordHits = surfaceSignals.keywordHits
+        val currentActionHints = surfaceSignals.actionHints
+        val shouldResetEvidence = surfaceSignals.normalVideoUiDetected && !surfaceSignals.viewerEvidence
+        val keywordState = if (shouldResetEvidence) {
+            RetainedHitsState(
+                hits = emptySet(),
+                lastSeenAt = 0L,
+            )
+        } else {
+            retainFreshHits(
+                currentHits = currentKeywordHits,
+                retainedHits = baseSession.keywordHits,
+                lastSeenAt = baseSession.lastKeywordEvidenceAt,
+                now = now,
+                ttlMs = SHORTS_KEYWORD_TTL_MS,
+            )
+        }
+        val actionHintState = if (shouldResetEvidence) {
+            RetainedHitsState(
+                hits = emptySet(),
+                lastSeenAt = 0L,
+            )
+        } else {
+            retainFreshHits(
+                currentHits = currentActionHints,
+                retainedHits = baseSession.actionHints,
+                lastSeenAt = baseSession.lastActionHintEvidenceAt,
+                now = now,
+                ttlMs = SHORTS_ACTION_HINT_TTL_MS,
+            )
+        }
         val keywordHits = keywordState.hits
         val actionHints = actionHintState.hits
-        val currentViewerEvidence = hasYoutubeShortsViewerEvidence(
-            keywordHits = currentKeywordHits,
-            actionHints = currentActionHints,
-        )
-        val retainedViewerEvidence = hasYoutubeShortsViewerEvidence(
-            keywordHits = keywordHits,
-            actionHints = actionHints,
-        )
-        val reliableEvidenceObservedNow = currentKeywordHits.isNotEmpty() && retainedViewerEvidence
-        val freshReliableEvidence = reliableEvidenceObservedNow ||
-            isWithinWindow(baseSession.lastReliableEvidenceAt, now, SHORTS_EVIDENCE_TTL_MS)
-        val lastReliableEvidenceAt = if (reliableEvidenceObservedNow) {
-            now
+        val currentViewerEvidence = surfaceSignals.viewerEvidence
+        val retainedViewerEvidence = if (shouldResetEvidence) {
+            false
         } else {
-            baseSession.lastReliableEvidenceAt
+            hasYoutubeShortsViewerEvidence(
+                keywordHits = keywordHits,
+                actionHints = actionHints,
+            )
+        }
+        val reliableEvidenceObservedNow = currentKeywordHits.isNotEmpty() && retainedViewerEvidence
+        val freshReliableEvidence = if (shouldResetEvidence) {
+            false
+        } else {
+            reliableEvidenceObservedNow ||
+                isWithinWindow(baseSession.lastReliableEvidenceAt, now, SHORTS_EVIDENCE_TTL_MS)
+        }
+        val lastReliableEvidenceAt = when {
+            shouldResetEvidence -> 0L
+            reliableEvidenceObservedNow -> now
+            else -> baseSession.lastReliableEvidenceAt
         }
         val verticalScroll = isLikelyVerticalScroll(observedEvent)
         val continuingShortsScroll = verticalScroll && freshReliableEvidence
@@ -335,8 +415,9 @@ class ShortVideoDetector {
             continuingShortsScroll = continuingShortsScroll,
         )
         val swipeBurst = swipeState.swipeBurst
-        val lastTransitionAt = when (observedEvent.type) {
-            ObservedEventType.WINDOW_STATE_CHANGED -> now
+        val lastTransitionAt = when {
+            shouldResetEvidence -> now
+            observedEvent.type == ObservedEventType.WINDOW_STATE_CHANGED -> now
             else -> baseSession.lastTransitionAt
         }
         val scoreableEvidence = resolveScoreableShortsEvidence(
@@ -360,7 +441,7 @@ class ShortVideoDetector {
             lastActionHintEvidenceAt = actionHintState.lastSeenAt,
             lastReliableEvidenceAt = lastReliableEvidenceAt,
             lastCountedSwipeAt = swipeState.lastCountedSwipeAt,
-            lastTransitionAt = if (swipeState.counted) now else lastTransitionAt,
+            lastTransitionAt = if (shouldResetEvidence || swipeState.counted) now else lastTransitionAt,
         )
         activeSession = updatedSession
 
@@ -503,10 +584,131 @@ class ShortVideoDetector {
         }.distinct()
     }
 
+    private fun analyzeYoutubeViewerSurface(
+        signals: EventSignals,
+        rawKeywordHits: Set<String>,
+        rawActionHints: Set<String>,
+    ): ViewerSurfaceSignals {
+        val positionedNodes = signals.nodes.filter { it.hasBounds }
+        if (positionedNodes.isEmpty()) {
+            return ViewerSurfaceSignals(
+                keywordHits = rawKeywordHits,
+                actionHints = rawActionHints,
+                viewerEvidence = hasYoutubeShortsViewerEvidence(
+                    keywordHits = rawKeywordHits,
+                    actionHints = rawActionHints,
+                ),
+                normalVideoUiDetected = detectStandardVideoUi(
+                    signals = signals,
+                    positionedNodes = emptyList(),
+                    frameWidth = 0,
+                    frameHeight = 0,
+                ),
+            )
+        }
+
+        val frameWidth = positionedNodes.maxOf { it.right ?: 0 }.coerceAtLeast(1)
+        val frameHeight = positionedNodes.maxOf { it.bottom ?: 0 }.coerceAtLeast(1)
+        val surfaceKeywordHits = positionedNodes
+            .filter { node -> isLikelyShortsHeaderNode(node, frameWidth, frameHeight) }
+            .flatMap { node -> detectKeywordsForNode(node) }
+            .toSet()
+        val surfaceActionHints = positionedNodes
+            .filter { node -> isLikelyActionRailNode(node, frameWidth, frameHeight) }
+            .flatMap { node -> detectActionHintsForNode(node) }
+            .toSet()
+        val viewerEvidence = hasYoutubeShortsViewerEvidence(
+            keywordHits = surfaceKeywordHits,
+            actionHints = surfaceActionHints,
+        )
+        return ViewerSurfaceSignals(
+            keywordHits = surfaceKeywordHits,
+            actionHints = surfaceActionHints,
+            viewerEvidence = viewerEvidence,
+            normalVideoUiDetected = detectStandardVideoUi(
+                signals = signals,
+                positionedNodes = positionedNodes,
+                frameWidth = frameWidth,
+                frameHeight = frameHeight,
+            ),
+        )
+    }
+
     private fun hasYoutubeShortsViewerEvidence(
         keywordHits: Set<String>,
         actionHints: Set<String>,
     ): Boolean = keywordHits.isNotEmpty() && actionHints.size >= MIN_ACTION_RAIL_HINTS
+
+    private fun detectKeywordsForNode(node: SignalNode): List<String> {
+        val textMatches = youtubeShortsKeywords.filter { keyword ->
+            node.normalizedText.contains(keyword.lowercase(Locale.US))
+        }
+        val idMatches = youtubeShortsViewIdHints
+            .filter { hint -> node.normalizedViewId.contains(hint) }
+            .map { hint -> "ui:$hint" }
+        return (textMatches + idMatches).distinct()
+    }
+
+    private fun detectActionHintsForNode(node: SignalNode): List<String> {
+        val searchable = "${node.normalizedText} ${node.normalizedViewId}"
+        return youtubeActionRailHints.filter { hint ->
+            searchable.contains(hint.lowercase(Locale.US))
+        }.distinct()
+    }
+
+    private fun isLikelyShortsHeaderNode(node: SignalNode, frameWidth: Int, frameHeight: Int): Boolean {
+        val centerX = node.centerX ?: return false
+        val centerY = node.centerY ?: return false
+        return detectKeywordsForNode(node).isNotEmpty() &&
+            centerY <= (frameHeight * 0.30).toInt() &&
+            centerX <= (frameWidth * 0.72).toInt()
+    }
+
+    private fun isLikelyActionRailNode(node: SignalNode, frameWidth: Int, frameHeight: Int): Boolean {
+        val centerX = node.centerX ?: return false
+        val centerY = node.centerY ?: return false
+        return detectActionHintsForNode(node).isNotEmpty() &&
+            centerX >= (frameWidth * 0.68).toInt() &&
+            centerY >= (frameHeight * 0.18).toInt() &&
+            centerY <= (frameHeight * 0.92).toInt()
+    }
+
+    private fun detectStandardVideoUi(
+        signals: EventSignals,
+        positionedNodes: List<SignalNode>,
+        frameWidth: Int,
+        frameHeight: Int,
+    ): Boolean {
+        val searchable = "${signals.normalizedText} ${signals.normalizedViewIds}"
+        val hasExplicitPlayerControl = youtubeStandardVideoHints.any { hint ->
+            searchable.contains(hint.lowercase(Locale.US))
+        } || youtubeStandardVideoViewIdHints.any { hint ->
+            signals.normalizedViewIds.contains(hint)
+        }
+        if (hasExplicitPlayerControl) {
+            return true
+        }
+        if (positionedNodes.isEmpty() || frameWidth == 0 || frameHeight == 0) {
+            return false
+        }
+
+        val horizontalActionRow = positionedNodes
+            .filter { node -> detectActionHintsForNode(node).isNotEmpty() }
+            .filter { node ->
+                val centerX = node.centerX ?: return@filter false
+                val centerY = node.centerY ?: return@filter false
+                centerX < (frameWidth * 0.72).toInt() &&
+                    centerY >= (frameHeight * 0.42).toInt() &&
+                    centerY <= (frameHeight * 0.82).toInt()
+            }
+        if (horizontalActionRow.size < MIN_ACTION_RAIL_HINTS) {
+            return false
+        }
+        val xs = horizontalActionRow.mapNotNull { it.centerX }
+        val ys = horizontalActionRow.mapNotNull { it.centerY }
+        return (xs.maxOrNull() ?: 0) - (xs.minOrNull() ?: 0) >= (frameWidth * 0.20).toInt() &&
+            (ys.maxOrNull() ?: 0) - (ys.minOrNull() ?: 0) <= (frameHeight * 0.14).toInt()
+    }
 
     private fun detectUiFeatures(
         target: ServiceTarget,
@@ -574,6 +776,7 @@ class ShortVideoDetector {
             texts = eventTexts + nodeSignals.texts,
             viewIds = nodeSignals.viewIds,
             classNames = eventClassNames + nodeSignals.classNames,
+            nodes = nodeSignals.nodes,
         )
     }
 
@@ -631,6 +834,7 @@ class ShortVideoDetector {
         val texts = linkedSetOf<String>()
         val viewIds = linkedSetOf<String>()
         val classNames = linkedSetOf<String>()
+        val nodes = mutableListOf<SignalNode>()
         var visited = 0
 
         fun visit(node: AccessibilityNodeInfo, depth: Int) {
@@ -638,10 +842,26 @@ class ShortVideoDetector {
                 return
             }
             visited += 1
-            node.text?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(texts::add)
-            node.contentDescription?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(texts::add)
-            node.viewIdResourceName?.trim()?.takeIf { it.isNotBlank() }?.let(viewIds::add)
-            node.className?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(classNames::add)
+            val nodeText = buildList {
+                node.text?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
+                node.contentDescription?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
+            }.distinct().joinToString(separator = " ").trim().ifBlank { null }
+            val viewId = node.viewIdResourceName?.trim()?.takeIf { it.isNotBlank() }
+            val className = node.className?.toString()?.trim()?.takeIf { it.isNotBlank() }
+            val bounds = Rect().also(node::getBoundsInScreen)
+
+            nodeText?.let(texts::add)
+            viewId?.let(viewIds::add)
+            className?.let(classNames::add)
+            nodes += SignalNode(
+                text = nodeText,
+                viewId = viewId,
+                className = className,
+                left = bounds.left,
+                top = bounds.top,
+                right = bounds.right,
+                bottom = bounds.bottom,
+            )
 
             for (index in 0 until node.childCount) {
                 val child = runCatching { node.getChild(index) }.getOrNull() ?: continue
@@ -655,7 +875,7 @@ class ShortVideoDetector {
 
         return try {
             visit(root, depth = 0)
-            EventSignals(texts = texts, viewIds = viewIds, classNames = classNames)
+            EventSignals(texts = texts, viewIds = viewIds, classNames = classNames, nodes = nodes)
         } finally {
             root.recycle()
         }
