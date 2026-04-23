@@ -3,20 +3,35 @@ package dev.shortblocker.app.domain
 import android.Manifest
 import android.accessibilityservice.AccessibilityService
 import android.app.AppOpsManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
+import android.service.notification.NotificationListenerService
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import dev.shortblocker.app.data.PermissionSnapshot
 
-fun Context.buildPermissionSnapshot(serviceClass: Class<out AccessibilityService>): PermissionSnapshot {
+fun Context.buildPermissionSnapshot(
+    serviceClass: Class<out AccessibilityService>,
+): PermissionSnapshot {
+    return buildPermissionSnapshot(
+        serviceClass = serviceClass,
+        notificationListenerClass = ShortblockerMediaSessionListenerService::class.java,
+    )
+}
+
+fun Context.buildPermissionSnapshot(
+    serviceClass: Class<out AccessibilityService>,
+    notificationListenerClass: Class<out NotificationListenerService>,
+): PermissionSnapshot {
     return PermissionSnapshot(
         accessibility = isAccessibilityServiceEnabled(serviceClass),
         usageStats = hasUsageStatsAccess(),
         notifications = hasNotificationAccess(),
+        mediaSessionListener = hasNotificationListenerAccess(notificationListenerClass),
     )
 }
 
@@ -57,4 +72,24 @@ fun Context.isAccessibilityServiceEnabled(serviceClass: Class<out AccessibilityS
     ).orEmpty()
     val expected = "$packageName/${serviceClass.name}"
     return enabledServices.split(':').any { it.equals(expected, ignoreCase = true) }
+}
+
+fun Context.hasNotificationListenerAccess(
+    serviceClass: Class<out NotificationListenerService>,
+): Boolean {
+    val enabledListeners = Settings.Secure.getString(
+        contentResolver,
+        "enabled_notification_listeners",
+    ).orEmpty()
+    if (enabledListeners.isBlank()) {
+        return false
+    }
+    val component = ComponentName(this, serviceClass)
+    val expectedEntries = setOf(
+        component.flattenToString(),
+        component.flattenToShortString(),
+    )
+    return enabledListeners.split(':').any { enabled ->
+        expectedEntries.any { expected -> enabled.equals(expected, ignoreCase = true) }
+    }
 }

@@ -3,6 +3,7 @@ package dev.shortblocker.app.domain
 import android.accessibilityservice.AccessibilityService
 import android.view.accessibility.AccessibilityEvent
 import dev.shortblocker.app.ShortblockerApplication
+import dev.shortblocker.app.data.ServiceTarget
 import kotlinx.coroutines.launch
 
 class ShortVideoAccessibilityService : AccessibilityService() {
@@ -27,11 +28,17 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         val store = application.container.store
         val state = store.state.value
         val permissions = application.buildPermissionSnapshot(ShortVideoAccessibilityService::class.java)
+        val mediaPlaybackActive = if (safeEvent.packageName?.toString() == ServiceTarget.YOUTUBE.packageName) {
+            application.container.mediaPlaybackObserver.isPlaybackActive(ServiceTarget.YOUTUBE.packageName)
+        } else {
+            null
+        }
         val decision = application.container.detector.processEvent(
             event = safeEvent,
             settings = state.settings,
             permissions = permissions,
             cooldownUntilEpochMillis = state.cooldownUntilEpochMillis,
+            mediaPlaybackActive = mediaPlaybackActive,
         ) ?: return
 
         application.container.applicationScope.launch {

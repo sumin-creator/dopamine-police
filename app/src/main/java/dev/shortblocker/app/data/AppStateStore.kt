@@ -4,10 +4,11 @@ import android.content.Context
 import androidx.datastore.dataStore
 import androidx.datastore.core.DataStore
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -20,11 +21,19 @@ class AppStateStore(
     private val context: Context,
     scope: CoroutineScope,
 ) {
+    private val normalizedThreshold = MonitorSettings().threshold
+
     val state: StateFlow<AppState> = context.shortblockerDataStore.data.stateIn(
         scope = scope,
         started = SharingStarted.Eagerly,
         initialValue = AppState(),
     )
+
+    init {
+        scope.launch {
+            normalizePersistedSettings()
+        }
+    }
 
     suspend fun updateSettings(transform: (MonitorSettings) -> MonitorSettings) {
         context.shortblockerDataStore.updateDataCompat { current ->
@@ -139,6 +148,20 @@ class AppStateStore(
     private suspend fun DataStore<AppState>.updateDataCompat(transform: suspend (AppState) -> AppState) {
         withContext(Dispatchers.IO) {
             updateData(transform)
+        }
+    }
+
+    private suspend fun normalizePersistedSettings() {
+        context.shortblockerDataStore.updateDataCompat { current ->
+            if (current.settings.threshold == normalizedThreshold) {
+                return@updateDataCompat current
+            }
+            val updated = current.copy(
+                settings = current.settings.copy(threshold = normalizedThreshold),
+            )
+            updated.copy(
+                liveMonitor = updated.liveMonitor.copy(statusLabel = deriveStatus(updated)),
+            )
         }
     }
 

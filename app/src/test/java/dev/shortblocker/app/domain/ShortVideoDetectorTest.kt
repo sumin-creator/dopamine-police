@@ -75,6 +75,28 @@ class ShortVideoDetectorTest {
     }
 
     @Test
+    fun shortsLabelAndActionRailMustAppearOnSameViewerSurface() {
+        val decision = detector.processObservedEvent(
+            observedEvent(
+                nodes = listOf(
+                    signalNode(text = "Shorts", left = 120, top = 1_500, right = 320, bottom = 1_580),
+                    signalNode(text = "Like", left = 940, top = 620, right = 1_020, bottom = 700),
+                    signalNode(text = "Share", left = 940, top = 860, right = 1_020, bottom = 940),
+                ),
+            ),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = 1_000L,
+        )!!
+
+        assertTrue(decision.snapshot.keywordHits.isEmpty())
+        assertTrue(decision.snapshot.score < settings.threshold)
+        assertTrue(decision.snapshot.uiFeatures.isEmpty())
+        assertFalse(decision.shouldTrigger)
+    }
+
+    @Test
     fun shortVideoStructureCanTriggerWithoutShortsSwipeRequirement() {
         val decision = detector.evaluateScenario(
             scenario = DetectionScenario(
@@ -298,6 +320,40 @@ class ShortVideoDetectorTest {
     }
 
     @Test
+    fun normalVideoUiClearsRetainedShortsEvidenceImmediately() {
+        val base = 100_000L
+        detector.processObservedEvent(
+            observedEvent(nodes = shortsViewerNodes()),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base,
+        )
+
+        val normalVideoDecision = detector.processObservedEvent(
+            observedEvent(nodes = standardVideoNodes()),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 5_000L,
+        )!!
+        val scrollDecision = detector.processObservedEvent(
+            observedScrollEvent(now = base + 5_100L),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 5_100L,
+        )!!
+
+        assertTrue(normalVideoDecision.snapshot.keywordHits.isEmpty())
+        assertTrue(normalVideoDecision.snapshot.uiFeatures.isEmpty())
+        assertTrue(normalVideoDecision.snapshot.score < settings.threshold)
+        assertEquals(0, scrollDecision.snapshot.swipeBurst)
+        assertTrue(scrollDecision.snapshot.keywordHits.isEmpty())
+        assertFalse(scrollDecision.shouldTrigger)
+    }
+
+    @Test
     fun relaunchCountAccumulatesAcrossQuickReentries() {
         val base = 100_000L
         val firstEntry = detector.processObservedEvent(
@@ -421,12 +477,76 @@ class ShortVideoDetectorTest {
         assertTrue(decision.shouldTrigger)
     }
 
+    @Test
+    fun inactiveMediaPlaybackDoesNotBlockTriggerWhenUiEvidenceIsStrong() {
+        val decision = detector.evaluateScenario(
+            scenario = DetectionScenario(
+                appName = "YouTube",
+                packageName = ServiceTarget.YOUTUBE.packageName,
+                timeBand = TimeBand.LATE_NIGHT,
+                sessionMinutes = 18,
+                relaunchCount = 1,
+                swipeBurst = 0,
+                dwellSeconds = 20,
+                reentryAfterWarning = false,
+                keywords = listOf("Shorts"),
+                uiFeatures = listOf(
+                    UiFeature.FULLSCREEN_VERTICAL,
+                    UiFeature.ACTION_RAIL,
+                    UiFeature.VIDEO_STRUCTURE,
+                ),
+                note = "Shorts-like UI while playback is inactive",
+                mediaPlaybackActive = false,
+            ),
+            settings = settings,
+            cooldownUntilEpochMillis = 0L,
+            requirePermissions = true,
+            permissions = permissions,
+            now = 1_000L,
+        )
+
+        assertTrue(decision.snapshot.score >= settings.threshold)
+        assertTrue(decision.shouldTrigger)
+    }
+
+    @Test
+    fun unknownMediaPlaybackDoesNotBlockTrigger() {
+        val decision = detector.evaluateScenario(
+            scenario = DetectionScenario(
+                appName = "YouTube",
+                packageName = ServiceTarget.YOUTUBE.packageName,
+                timeBand = TimeBand.LATE_NIGHT,
+                sessionMinutes = 18,
+                relaunchCount = 1,
+                swipeBurst = 0,
+                dwellSeconds = 20,
+                reentryAfterWarning = false,
+                keywords = listOf("Shorts"),
+                uiFeatures = listOf(
+                    UiFeature.FULLSCREEN_VERTICAL,
+                    UiFeature.ACTION_RAIL,
+                    UiFeature.VIDEO_STRUCTURE,
+                ),
+                note = "Shorts-like UI while MediaSession is unavailable",
+                mediaPlaybackActive = null,
+            ),
+            settings = settings,
+            cooldownUntilEpochMillis = 0L,
+            requirePermissions = true,
+            permissions = permissions,
+            now = 1_000L,
+        )
+
+        assertTrue(decision.shouldTrigger)
+    }
+
     private fun observedEvent(
         packageName: String = ServiceTarget.YOUTUBE.packageName,
         type: ObservedEventType = ObservedEventType.WINDOW_CONTENT_CHANGED,
         texts: Set<String> = emptySet(),
         viewIds: Set<String> = emptySet(),
         classNames: Set<String> = emptySet(),
+        nodes: List<SignalNode> = emptyList(),
         scrollDeltaX: Int = 0,
         scrollDeltaY: Int = 0,
     ): ObservedEvent {
@@ -437,6 +557,7 @@ class ShortVideoDetectorTest {
                 texts = texts,
                 viewIds = viewIds,
                 classNames = classNames,
+                nodes = nodes,
             ),
             scrollDeltaX = scrollDeltaX,
             scrollDeltaY = scrollDeltaY,
@@ -453,4 +574,37 @@ class ShortVideoDetectorTest {
             scrollDeltaY = 160,
         )
     }
+
+    private fun shortsViewerNodes(): List<SignalNode> = listOf(
+        signalNode(text = "Shorts", left = 110, top = 90, right = 320, bottom = 180),
+        signalNode(text = "Like", left = 950, top = 760, right = 1_030, bottom = 840),
+        signalNode(text = "Share", left = 950, top = 1_020, right = 1_030, bottom = 1_100),
+        signalNode(text = "Comment", left = 950, top = 890, right = 1_030, bottom = 970),
+    )
+
+    private fun standardVideoNodes(): List<SignalNode> = listOf(
+        signalNode(text = "Pause", left = 470, top = 260, right = 610, bottom = 340),
+        signalNode(text = "Fullscreen", left = 900, top = 420, right = 1_040, bottom = 500),
+        signalNode(text = "Like", left = 190, top = 1_050, right = 280, bottom = 1_120),
+        signalNode(text = "Share", left = 420, top = 1_050, right = 520, bottom = 1_120),
+        signalNode(text = "Save", left = 660, top = 1_050, right = 760, bottom = 1_120),
+    )
+
+    private fun signalNode(
+        text: String? = null,
+        viewId: String? = null,
+        className: String? = null,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+    ): SignalNode = SignalNode(
+        text = text,
+        viewId = viewId,
+        className = className,
+        left = left,
+        top = top,
+        right = right,
+        bottom = bottom,
+    )
 }

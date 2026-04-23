@@ -51,7 +51,7 @@ object AppStateJsonCodec {
     }
 
     private fun decodeSettings(json: JSONObject?): MonitorSettings = MonitorSettings(
-        threshold = json?.optInt("threshold", 62) ?: 62,
+        threshold = 55,
         cooldownMinutes = json?.optInt("cooldownMinutes", 4) ?: 4,
         dailyGoalMinutes = json?.optInt("dailyGoalMinutes", 25) ?: 25,
         alertsEnabled = json?.optBoolean("alertsEnabled", true) ?: true,
@@ -67,12 +67,14 @@ object AppStateJsonCodec {
         put("accessibility", snapshot.accessibility)
         put("usageStats", snapshot.usageStats)
         put("notifications", snapshot.notifications)
+        put("mediaSessionListener", snapshot.mediaSessionListener)
     }
 
     private fun decodePermissions(json: JSONObject?): PermissionSnapshot = PermissionSnapshot(
         accessibility = json?.optBoolean("accessibility", false) ?: false,
         usageStats = json?.optBoolean("usageStats", false) ?: false,
         notifications = json?.optBoolean("notifications", false) ?: false,
+        mediaSessionListener = json?.optBoolean("mediaSessionListener", false) ?: false,
     )
 
     private fun encodeCharacterState(state: CharacterState): JSONObject = JSONObject().apply {
@@ -114,8 +116,8 @@ object AppStateJsonCodec {
         statusLabel = json?.optString("statusLabel", "権限待ち") ?: "権限待ち",
         currentDialogue = json?.optString(
             "currentDialogue",
-            "Accessibility Service と Usage Stats を有効化すると監視が始まります。",
-        ) ?: "Accessibility Service と Usage Stats を有効化すると監視が始まります。",
+            "Accessibility Service を有効化すると監視が始まります。MediaSession は精度向上用です。",
+        ) ?: "Accessibility Service を有効化すると監視が始まります。MediaSession は精度向上用です。",
         sessionMinutes = json?.optInt("sessionMinutes", 0) ?: 0,
         relaunchCount = json?.optInt("relaunchCount", 0) ?: 0,
         swipeBurst = json?.optInt("swipeBurst", 0) ?: 0,

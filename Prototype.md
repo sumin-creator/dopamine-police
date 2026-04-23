@@ -101,7 +101,6 @@
 
    * 前景アプリ
    * 使用時間
-   * 時刻
    * セッション継続時間
 
 2. **UI / Interaction Sensing Layer**
