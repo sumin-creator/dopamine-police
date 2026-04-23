@@ -35,7 +35,7 @@ flowchart TD
     Q -- no --> R[keep swipeBurst]
     Q -- yes --> S{fresh reliable evidence?}
     S -- no --> T[reset swipeBurst=0]
-    S -- yes --> U[count swipe with debounce 900ms<br/>burst window 20s]
+    S -- yes --> U[count swipe with debounce 900ms<br/>burst window 20s<br/>telemetry only]
 
     R --> V[resolve scoreable evidence]
     T --> V
@@ -48,8 +48,8 @@ flowchart TD
     X --> Z[detectUiFeatures]
     Y --> Z[detectUiFeatures<br/>VIDEO_STRUCTURE / FULLSCREEN_VERTICAL<br/>ACTION_RAIL / CONTINUOUS_TRANSITIONS]
 
-    Z --> AA[evaluateScenario<br/>score = app context + UI + swipe + duration]
-    AA --> AB{alertsEnabled<br/>YouTube enabled<br/>canIntervene<br/>cooldown finished<br/>reliable short-video evidence<br/>swipeBurst >= 2<br/>score >= threshold}
+    Z --> AA[evaluateScenario<br/>score = app context + UI + duration]
+    AA --> AB{alertsEnabled<br/>YouTube enabled<br/>canIntervene<br/>cooldown finished<br/>reliable short-video evidence<br/>score >= threshold}
 
     AB -- no --> Z2[shouldTrigger=false]
     AB -- yes --> AC{last warning > 30s ago?}
@@ -62,7 +62,7 @@ flowchart TD
 | Item | Current value | Meaning |
 | --- | --- | --- |
 | `threshold` | `62` | 通知候補になるスコア閾値 |
-| `REQUIRED_SHORTS_SWIPES` | `2` | 発火に必要な Shorts 縦スワイプ数 |
+| `REQUIRED_SHORTS_SWIPES` | `2` | `CONTINUOUS_TRANSITIONS` 表示用の目安 |
 | `MIN_ACTION_RAIL_HINTS` | `2` | viewer evidence に必要な action hint 数 |
 | `SHORTS_KEYWORD_TTL_MS` | `20_000` | Shorts surface hint の保持時間 |
 | `SHORTS_ACTION_HINT_TTL_MS` | `12_000` | action hint の保持時間 |
@@ -78,4 +78,5 @@ flowchart TD
 - 時間帯は `timeBand` として保持されますが、スコア加点には使っていません。
 - `keyword` と `action hint` は別 TTL で保持し、信頼証拠の更新は新しい Shorts surface hint を見た時だけ行います。
 - `Usage Stats` と通知権限は監視表示には残りますが、発火可否の必須条件からは外しています。
+- `swipeBurst` はログと `CONTINUOUS_TRANSITIONS` の補助指標として残していますが、通知発火条件とスコア計算には使っていません。
 - UI 上の「介入候補」は `score >= threshold` で出ますが、通知発火はそれより厳しい条件です。

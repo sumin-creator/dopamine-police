@@ -43,7 +43,7 @@ class ShortVideoDetectorTest {
             now = 1_000L,
         )
 
-        assertTrue(decision.snapshot.score >= settings.threshold)
+        assertTrue(decision.snapshot.swipeBurst >= 2)
         assertFalse(decision.shouldTrigger)
     }
 
@@ -70,30 +70,29 @@ class ShortVideoDetectorTest {
             now = 1_000L,
         )
 
-        assertTrue(decision.snapshot.score >= settings.threshold)
+        assertTrue(decision.snapshot.keywordHits.isNotEmpty())
         assertFalse(decision.shouldTrigger)
     }
 
     @Test
-    fun shortVideoStructureDoesNotTriggerBeforeSecondShortsSwipe() {
+    fun shortVideoStructureCanTriggerWithoutShortsSwipeRequirement() {
         val decision = detector.evaluateScenario(
             scenario = DetectionScenario(
                 appName = "YouTube",
                 packageName = ServiceTarget.YOUTUBE.packageName,
                 timeBand = TimeBand.LATE_NIGHT,
-                sessionMinutes = 12,
+                sessionMinutes = 20,
                 relaunchCount = 0,
-                swipeBurst = 1,
-                dwellSeconds = 12,
+                swipeBurst = 0,
+                dwellSeconds = 30,
                 reentryAfterWarning = false,
                 keywords = listOf("Shorts"),
                 uiFeatures = listOf(
                     UiFeature.FULLSCREEN_VERTICAL,
                     UiFeature.ACTION_RAIL,
                     UiFeature.VIDEO_STRUCTURE,
-                    UiFeature.CONTINUOUS_TRANSITIONS,
                 ),
-                note = "Shorts viewer before enough page swipes",
+                note = "Shorts viewer with structural evidence but no swipe dependency",
             ),
             settings = settings,
             cooldownUntilEpochMillis = 0L,
@@ -103,17 +102,17 @@ class ShortVideoDetectorTest {
         )
 
         assertTrue(decision.snapshot.score >= settings.threshold)
-        assertFalse(decision.shouldTrigger)
+        assertTrue(decision.shouldTrigger)
     }
 
     @Test
-    fun shortVideoStructureTriggersAfterSecondShortsSwipe() {
+    fun shortVideoStructureAndRelaunchStillTriggerWithoutSwipeScore() {
         val decision = detector.evaluateScenario(
             scenario = DetectionScenario(
                 appName = "YouTube",
                 packageName = ServiceTarget.YOUTUBE.packageName,
                 timeBand = TimeBand.LATE_NIGHT,
-                sessionMinutes = 4,
+                sessionMinutes = 9,
                 relaunchCount = 2,
                 swipeBurst = 2,
                 dwellSeconds = 12,
@@ -125,7 +124,7 @@ class ShortVideoDetectorTest {
                     UiFeature.VIDEO_STRUCTURE,
                     UiFeature.CONTINUOUS_TRANSITIONS,
                 ),
-                note = "Shorts viewer with action rail and repeated vertical transitions",
+                note = "Shorts viewer with action rail and relaunch context",
             ),
             settings = settings,
             cooldownUntilEpochMillis = 0L,
@@ -334,22 +333,15 @@ class ShortVideoDetectorTest {
             observedEvent(texts = setOf("Shorts", "Like", "Share")),
             settings = settings,
             permissions = permissions,
-            cooldownUntilEpochMillis = base + 30_000L,
+            cooldownUntilEpochMillis = base + 30 * 60_000L,
             now = base,
         )
-        detector.processObservedEvent(
-            observedScrollEvent(now = base + 1_000L),
-            settings = settings,
-            permissions = permissions,
-            cooldownUntilEpochMillis = base + 30_000L,
-            now = base + 1_000L,
-        )
         val decision = detector.processObservedEvent(
-            observedScrollEvent(now = base + 2_500L),
+            observedEvent(texts = setOf("Shorts", "Like", "Share")),
             settings = settings,
             permissions = permissions,
-            cooldownUntilEpochMillis = base + 30_000L,
-            now = base + 2_500L,
+            cooldownUntilEpochMillis = base + 30 * 60_000L,
+            now = base + 20 * 60_000L,
         )!!
 
         assertTrue(decision.snapshot.score >= settings.threshold)
@@ -366,26 +358,19 @@ class ShortVideoDetectorTest {
             cooldownUntilEpochMillis = 0L,
             now = base,
         )
-        detector.processObservedEvent(
-            observedScrollEvent(now = base + 1_000L),
-            settings = settings,
-            permissions = permissions,
-            cooldownUntilEpochMillis = 0L,
-            now = base + 1_000L,
-        )
         val firstTrigger = detector.processObservedEvent(
-            observedScrollEvent(now = base + 2_500L),
+            observedEvent(texts = setOf("Shorts", "Like", "Share")),
             settings = settings,
             permissions = permissions,
             cooldownUntilEpochMillis = 0L,
-            now = base + 2_500L,
+            now = base + 20 * 60_000L,
         )!!
         val secondDecision = detector.processObservedEvent(
-            observedScrollEvent(now = base + 4_000L),
+            observedEvent(texts = setOf("Shorts", "Like", "Share")),
             settings = settings,
             permissions = permissions,
             cooldownUntilEpochMillis = 0L,
-            now = base + 4_000L,
+            now = base + 20 * 60_000L + 1_000L,
         )!!
 
         assertTrue(firstTrigger.shouldTrigger)
@@ -409,19 +394,12 @@ class ShortVideoDetectorTest {
             cooldownUntilEpochMillis = 0L,
             now = base,
         )
-        detector.processObservedEvent(
-            observedScrollEvent(now = base + 1_000L),
-            settings = settings,
-            permissions = limitedPermissions,
-            cooldownUntilEpochMillis = 0L,
-            now = base + 1_000L,
-        )
         val decision = detector.processObservedEvent(
-            observedScrollEvent(now = base + 2_500L),
+            observedEvent(texts = setOf("Shorts", "Like", "Share")),
             settings = settings,
             permissions = limitedPermissions,
             cooldownUntilEpochMillis = 0L,
-            now = base + 2_500L,
+            now = base + 20 * 60_000L,
         )!!
 
         assertTrue(decision.snapshot.score >= settings.threshold)

@@ -134,12 +134,7 @@ class ShortVideoDetector {
             scenario.keywords.size * 6 +
                 (if (UiFeature.FULLSCREEN_VERTICAL in scenario.uiFeatures) 8 else 0) +
                 (if (UiFeature.ACTION_RAIL in scenario.uiFeatures) 7 else 0) +
-                (if (UiFeature.VIDEO_STRUCTURE in scenario.uiFeatures) 8 else 0) +
-                (if (UiFeature.CONTINUOUS_TRANSITIONS in scenario.uiFeatures) 6 else 0),
-        )
-        val repeatedVerticalNavigation = min(
-            20,
-            scenario.swipeBurst * 4 + if (scenario.reentryAfterWarning) 4 else 0,
+                (if (UiFeature.VIDEO_STRUCTURE in scenario.uiFeatures) 8 else 0),
         )
         val sessionDuration = min(
             15,
@@ -147,7 +142,7 @@ class ShortVideoDetector {
         )
         val total = min(
             100,
-            targetAppContext + shortsLikeUi + repeatedVerticalNavigation + sessionDuration,
+            targetAppContext + shortsLikeUi + sessionDuration,
         )
         val warningLevel = warningLevelFromScore(total)
         val dialogue = dialogueFor(
@@ -167,12 +162,6 @@ class ShortVideoDetector {
                 value = shortsLikeUi,
                 max = 35,
                 detail = "キーワード ${scenario.keywords.size}件 / UI特徴 ${scenario.uiFeatures.size}件",
-            ),
-            DetectionBreakdown(
-                label = "Repeated Vertical Navigation",
-                value = repeatedVerticalNavigation,
-                max = 20,
-                detail = "縦スワイプ ${scenario.swipeBurst}回 / 警告後再突入 ${if (scenario.reentryAfterWarning) "あり" else "なし"}",
             ),
             DetectionBreakdown(
                 label = "Session Duration",
@@ -199,13 +188,11 @@ class ShortVideoDetector {
         )
         val permissionsReady = !requirePermissions || permissions.canIntervene
         val reliableShortVideoEvidence = hasReliableShortVideoEvidence(scenario)
-        val interactionEvidence = scenario.swipeBurst >= REQUIRED_SHORTS_SWIPES
         val shouldTrigger = settings.alertsEnabled &&
             youtubeRuntimeTarget &&
             permissionsReady &&
             now >= cooldownUntilEpochMillis &&
             reliableShortVideoEvidence &&
-            interactionEvidence &&
             total >= settings.threshold
 
         return DetectionDecision(snapshot = snapshot, shouldTrigger = shouldTrigger)
@@ -518,7 +505,7 @@ class ShortVideoDetector {
         val hasRepeatedVerticalNavigation = swipeBurst >= REQUIRED_SHORTS_SWIPES
         val hasShortVideoStructure = target == ServiceTarget.YOUTUBE &&
             hasShortSurfaceHint &&
-            (hasActionRail || hasRepeatedVerticalNavigation)
+            hasActionRail
 
         return buildList {
             if (hasShortVideoStructure) {
@@ -527,7 +514,7 @@ class ShortVideoDetector {
             if (hasShortVideoStructure && hasActionRail) {
                 add(UiFeature.FULLSCREEN_VERTICAL)
             }
-            if (hasActionRail && (hasShortSurfaceHint || hasRepeatedVerticalNavigation)) {
+            if (hasActionRail && hasShortSurfaceHint) {
                 add(UiFeature.ACTION_RAIL)
             }
             if (hasRepeatedVerticalNavigation && (hasShortSurfaceHint || hasActionRail)) {
