@@ -44,7 +44,7 @@ flowchart TD
     U --> W[detectUiFeatures]
     V --> W[detectUiFeatures<br/>VIDEO_STRUCTURE / FULLSCREEN_VERTICAL<br/>ACTION_RAIL / CONTINUOUS_TRANSITIONS]
 
-    W --> X[evaluateScenario<br/>score = app context + UI + swipe + duration + time band]
+    W --> X[evaluateScenario<br/>score = app context + UI + swipe + duration]
     X --> Y{alertsEnabled<br/>YouTube enabled<br/>all permissions granted<br/>cooldown finished<br/>reliable short-video evidence<br/>swipeBurst >= 2<br/>score >= threshold}
 
     Y -- no --> Z2[shouldTrigger=false]
@@ -70,4 +70,5 @@ flowchart TD
 
 - 実ランタイムの `processEvent()` は現状 `YouTube` 以外を即除外します。
 - `README.md` には Instagram / TikTok も書かれていますが、通知発火ロジックはまだ YouTube Shorts 寄りです。
+- 時間帯は `timeBand` として保持されますが、スコア加点には使っていません。
 - UI 上の「介入候補」は `score >= threshold` で出ますが、通知発火はそれより厳しい条件です。

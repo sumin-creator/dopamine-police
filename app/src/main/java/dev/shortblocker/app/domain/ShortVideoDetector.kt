@@ -119,14 +119,9 @@ class ShortVideoDetector {
             15,
             (scenario.sessionMinutes * 0.65 + min(scenario.dwellSeconds, 30) * 0.1).roundToInt(),
         )
-        val riskyTime = when (scenario.timeBand) {
-            TimeBand.LATE_NIGHT -> 10
-            TimeBand.EVENING -> 4
-            TimeBand.FOCUS -> 0
-        }
         val total = min(
             100,
-            targetAppContext + shortsLikeUi + repeatedVerticalNavigation + sessionDuration + riskyTime,
+            targetAppContext + shortsLikeUi + repeatedVerticalNavigation + sessionDuration,
         )
         val warningLevel = warningLevelFromScore(total)
         val dialogue = dialogueFor(
@@ -158,12 +153,6 @@ class ShortVideoDetector {
                 value = sessionDuration,
                 max = 15,
                 detail = "${scenario.sessionMinutes}分継続 / 滞在 ${scenario.dwellSeconds}秒",
-            ),
-            DetectionBreakdown(
-                label = "Risky Time Of Day",
-                value = riskyTime,
-                max = 10,
-                detail = scenario.timeBand.label,
             ),
         )
         val snapshot = DetectionSnapshot(
