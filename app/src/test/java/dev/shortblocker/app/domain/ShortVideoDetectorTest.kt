@@ -199,6 +199,21 @@ class ShortVideoDetectorTest {
     }
 
     @Test
+    fun stageDropsFromWatchingShortsAfterLeavingViewer() {
+        val stage = detector.resolveDetectionStage(
+            scoreableEvidence = ScoreableShortsEvidence(
+                keywordHits = emptySet(),
+                actionHints = emptySet(),
+                swipeBurst = 0,
+            ),
+            freshReliableEvidence = true,
+            keywordHits = setOf("Shorts"),
+        )
+
+        assertEquals(ShortVideoDetector.DetectionStage.CANDIDATE, stage)
+    }
+
+    @Test
     fun repeatedScrollEventsWithinDebounceDoNotInflateShortsSwipes() {
         val first = detector.resolveShortsSwipeState(
             currentSwipeBurst = 0,

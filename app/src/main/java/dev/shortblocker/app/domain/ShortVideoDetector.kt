@@ -336,11 +336,18 @@ class ShortVideoDetector {
             ObservedEventType.WINDOW_STATE_CHANGED -> now
             else -> baseSession.lastTransitionAt
         }
-        val stage = when {
-            swipeBurst >= REQUIRED_SHORTS_SWIPES -> DetectionStage.WATCHING_SHORTS
-            freshReliableEvidence || keywordHits.isNotEmpty() -> DetectionStage.CANDIDATE
-            else -> DetectionStage.IDLE
-        }
+        val scoreableEvidence = resolveScoreableShortsEvidence(
+            keywordHits = keywordHits,
+            actionHints = actionHints,
+            swipeBurst = swipeBurst,
+            currentViewerEvidence = currentViewerEvidence,
+            continuingShortsScroll = continuingShortsScroll,
+        )
+        val stage = resolveDetectionStage(
+            scoreableEvidence = scoreableEvidence,
+            freshReliableEvidence = freshReliableEvidence,
+            keywordHits = keywordHits,
+        )
         val updatedSession = baseSession.copy(
             swipeBurst = swipeBurst,
             keywordHits = keywordHits,
@@ -354,13 +361,6 @@ class ShortVideoDetector {
         )
         activeSession = updatedSession
 
-        val scoreableEvidence = resolveScoreableShortsEvidence(
-            keywordHits = keywordHits,
-            actionHints = actionHints,
-            swipeBurst = swipeBurst,
-            currentViewerEvidence = currentViewerEvidence,
-            continuingShortsScroll = continuingShortsScroll,
-        )
         val uiFeatures = detectUiFeatures(
             target = target,
             keywordHits = scoreableEvidence.keywordHits,
@@ -459,6 +459,16 @@ class ShortVideoDetector {
                 swipeBurst = 0,
             )
         }
+    }
+
+    internal fun resolveDetectionStage(
+        scoreableEvidence: ScoreableShortsEvidence,
+        freshReliableEvidence: Boolean,
+        keywordHits: Set<String>,
+    ): DetectionStage = when {
+        scoreableEvidence.swipeBurst >= REQUIRED_SHORTS_SWIPES -> DetectionStage.WATCHING_SHORTS
+        freshReliableEvidence || keywordHits.isNotEmpty() -> DetectionStage.CANDIDATE
+        else -> DetectionStage.IDLE
     }
 
     private fun detectKeywords(target: ServiceTarget, signals: EventSignals): List<String> {
@@ -697,7 +707,7 @@ class ShortVideoDetector {
         val lastSeenAt: Long,
     )
 
-    private enum class DetectionStage {
+    internal enum class DetectionStage {
         IDLE,
         CANDIDATE,
         WATCHING_SHORTS,
