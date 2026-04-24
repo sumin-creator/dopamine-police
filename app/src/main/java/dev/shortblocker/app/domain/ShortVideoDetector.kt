@@ -177,9 +177,16 @@ class ShortVideoDetector {
         val target = ServiceTarget.fromPackage(scenario.packageName)
         val youtubeRuntimeTarget = target == ServiceTarget.YOUTUBE && settings.supportedApps.isEnabled(target)
         val targetAppContext = if (youtubeRuntimeTarget) {
+            val settledSessionBonus = if (scenario.sessionMinutes >= APP_CONTEXT_SETTLE_MINUTES) {
+                APP_CONTEXT_SETTLE_BONUS
+            } else {
+                0
+            }
             min(
                 APP_CONTEXT_MAX,
-                APP_CONTEXT_BASE + min(scenario.relaunchCount, 2) * RELAUNCH_CONTEXT_BONUS,
+                APP_CONTEXT_BASE +
+                    min(scenario.relaunchCount, 2) * RELAUNCH_CONTEXT_BONUS +
+                    settledSessionBonus,
             )
         } else {
             0
@@ -587,8 +594,9 @@ class ShortVideoDetector {
         val textMatches = keywords.filter { keyword ->
             signals.normalizedText.contains(keyword.lowercase(Locale.US))
         }
+        val viewIdTokens = tokenizeViewIdValue(signals.normalizedViewIds)
         val idMatches = youtubeShortsViewIdHints
-            .filter { hint -> signals.normalizedViewIds.contains(hint) }
+            .filter { hint -> hint.lowercase(Locale.US) in viewIdTokens }
             .map { hint -> "ui:$hint" }
         return (textMatches + idMatches).distinct()
     }
@@ -597,10 +605,19 @@ class ShortVideoDetector {
         if (signals.isEmpty()) {
             return emptyList()
         }
-        val searchable = "${signals.normalizedText} ${signals.normalizedViewIds}"
+        val viewIdTokens = tokenizeViewIdValue(signals.normalizedViewIds)
         return youtubeActionRailHints.filter { hint ->
-            searchable.contains(hint.lowercase(Locale.US))
+            signals.normalizedText.contains(hint.lowercase(Locale.US)) ||
+                hint.lowercase(Locale.US) in viewIdTokens
         }.distinct()
+    }
+
+    private fun tokenizeViewIdValue(value: String): Set<String> {
+        return value
+            .split(VIEW_ID_TOKEN_SPLIT_REGEX)
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .toSet()
     }
 
     private fun analyzeYoutubeViewerSurface(
@@ -610,19 +627,23 @@ class ShortVideoDetector {
     ): ViewerSurfaceSignals {
         val positionedNodes = signals.nodes.filter { it.hasBounds }
         if (positionedNodes.isEmpty()) {
+            val normalVideoUiDetected = detectStandardVideoUi(
+                signals = signals,
+                positionedNodes = emptyList(),
+                frameWidth = 0,
+                frameHeight = 0,
+            )
+            val fallbackKeywordHits = rawKeywordHits
+                .filterNot { it.startsWith("ui:") }
+                .toSet()
+            val fallbackViewerEvidence = !normalVideoUiDetected &&
+                fallbackKeywordHits.isNotEmpty() &&
+                rawActionHints.size >= FALLBACK_MIN_ACTION_HINTS
             return ViewerSurfaceSignals(
-                keywordHits = rawKeywordHits,
-                actionHints = rawActionHints,
-                viewerEvidence = hasYoutubeShortsViewerEvidence(
-                    keywordHits = rawKeywordHits,
-                    actionHints = rawActionHints,
-                ),
-                normalVideoUiDetected = detectStandardVideoUi(
-                    signals = signals,
-                    positionedNodes = emptyList(),
-                    frameWidth = 0,
-                    frameHeight = 0,
-                ),
+                keywordHits = fallbackKeywordHits,
+                actionHints = if (fallbackViewerEvidence) rawActionHints else emptySet(),
+                viewerEvidence = fallbackViewerEvidence,
+                normalVideoUiDetected = normalVideoUiDetected,
             )
         }
 
@@ -662,16 +683,18 @@ class ShortVideoDetector {
         val textMatches = youtubeShortsKeywords.filter { keyword ->
             node.normalizedText.contains(keyword.lowercase(Locale.US))
         }
+        val viewIdTokens = tokenizeViewIdValue(node.normalizedViewId)
         val idMatches = youtubeShortsViewIdHints
-            .filter { hint -> node.normalizedViewId.contains(hint) }
+            .filter { hint -> hint.lowercase(Locale.US) in viewIdTokens }
             .map { hint -> "ui:$hint" }
         return (textMatches + idMatches).distinct()
     }
 
     private fun detectActionHintsForNode(node: SignalNode): List<String> {
-        val searchable = "${node.normalizedText} ${node.normalizedViewId}"
+        val viewIdTokens = tokenizeViewIdValue(node.normalizedViewId)
         return youtubeActionRailHints.filter { hint ->
-            searchable.contains(hint.lowercase(Locale.US))
+            node.normalizedText.contains(hint.lowercase(Locale.US)) ||
+                hint.lowercase(Locale.US) in viewIdTokens
         }.distinct()
     }
 
@@ -698,11 +721,11 @@ class ShortVideoDetector {
         frameWidth: Int,
         frameHeight: Int,
     ): Boolean {
-        val searchable = "${signals.normalizedText} ${signals.normalizedViewIds}"
+        val viewIdTokens = tokenizeViewIdValue(signals.normalizedViewIds)
         val hasExplicitPlayerControl = youtubeStandardVideoHints.any { hint ->
-            searchable.contains(hint.lowercase(Locale.US))
+            signals.normalizedText.contains(hint.lowercase(Locale.US))
         } || youtubeStandardVideoViewIdHints.any { hint ->
-            signals.normalizedViewIds.contains(hint)
+            hint.lowercase(Locale.US) in viewIdTokens
         }
         if (hasExplicitPlayerControl) {
             return true
@@ -1045,8 +1068,10 @@ class ShortVideoDetector {
     private companion object {
         const val TAG = "ShortDetector"
         const val APP_CONTEXT_MAX = 20
-        const val APP_CONTEXT_BASE = 10
-        const val RELAUNCH_CONTEXT_BONUS = 5
+        const val APP_CONTEXT_BASE = 8
+        const val RELAUNCH_CONTEXT_BONUS = 4
+        const val APP_CONTEXT_SETTLE_BONUS = 4
+        const val APP_CONTEXT_SETTLE_MINUTES = 3
         const val SHORTS_UI_MAX = 55
         const val KEYWORD_CONFIDENCE_MAX = 15
         const val KEYWORD_HIT_WEIGHT = 8
@@ -1063,9 +1088,11 @@ class ShortVideoDetector {
         const val SHORTS_EVIDENCE_TTL_MS = 12_000L
         const val WARNING_RATE_LIMIT_MS = 30_000L
         const val RELAUNCH_WINDOW_MS = 5 * 60_000L
+        const val FALLBACK_MIN_ACTION_HINTS = 3
         const val REQUIRED_SHORTS_SWIPES = 2
         const val MIN_ACTION_RAIL_HINTS = 2
         const val MAX_NODE_DEPTH = 5
         const val MAX_NODE_COUNT = 80
+        val VIEW_ID_TOKEN_SPLIT_REGEX = Regex("[^a-z0-9]+")
     }
 }

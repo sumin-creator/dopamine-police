@@ -97,6 +97,44 @@ class ShortVideoDetectorTest {
     }
 
     @Test
+    fun boundsLessFallbackDoesNotPromoteViewIdOnlyShortsHintsToViewer() {
+        val decision = detector.processObservedEvent(
+            observedEvent(
+                texts = setOf("Share", "Remix", "Sound"),
+                viewIds = setOf(
+                    "com.google.android.youtube:id/reel_sound_metadata",
+                    "com.google.android.youtube:id/shorts_action_bar",
+                ),
+            ),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = 1_000L,
+        )!!
+
+        assertTrue(decision.snapshot.keywordHits.isEmpty())
+        assertTrue(decision.snapshot.score < settings.threshold)
+        assertFalse(decision.shouldTrigger)
+    }
+
+    @Test
+    fun viewIdSubstringDoesNotCountAsShortsKeyword() {
+        val decision = detector.processObservedEvent(
+            observedEvent(
+                texts = setOf("Like", "Share", "Save"),
+                viewIds = setOf("com.google.android.youtube:id/shortcuts_menu"),
+            ),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = 1_000L,
+        )!!
+
+        assertTrue(decision.snapshot.keywordHits.isEmpty())
+        assertFalse(decision.shouldTrigger)
+    }
+
+    @Test
     fun shortVideoStructureCanTriggerWithoutShortsSwipeRequirement() {
         val decision = detector.evaluateScenario(
             scenario = DetectionScenario(
@@ -157,6 +195,37 @@ class ShortVideoDetectorTest {
 
         assertTrue(decision.snapshot.score >= settings.threshold)
         assertTrue(decision.shouldTrigger)
+    }
+
+    @Test
+    fun quickRelaunchViewerMomentStaysBelowThreshold() {
+        val decision = detector.evaluateScenario(
+            scenario = DetectionScenario(
+                appName = "YouTube",
+                packageName = ServiceTarget.YOUTUBE.packageName,
+                timeBand = TimeBand.LATE_NIGHT,
+                sessionMinutes = 1,
+                relaunchCount = 2,
+                swipeBurst = 0,
+                dwellSeconds = 1,
+                reentryAfterWarning = true,
+                keywords = listOf("Shorts"),
+                uiFeatures = listOf(
+                    UiFeature.FULLSCREEN_VERTICAL,
+                    UiFeature.ACTION_RAIL,
+                    UiFeature.VIDEO_STRUCTURE,
+                ),
+                note = "Quick reentry with only a momentary Shorts viewer frame",
+            ),
+            settings = settings,
+            cooldownUntilEpochMillis = 0L,
+            requirePermissions = true,
+            permissions = permissions,
+            now = 1_000L,
+        )
+
+        assertTrue(decision.snapshot.score < settings.threshold)
+        assertFalse(decision.shouldTrigger)
     }
 
     @Test
@@ -401,14 +470,14 @@ class ShortVideoDetectorTest {
     fun cooldownSuppressesTriggerEvenWhenShortsSequenceScoresHigh() {
         val base = 100_000L
         detector.processObservedEvent(
-            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            observedEvent(nodes = shortsViewerNodes()),
             settings = settings,
             permissions = permissions,
             cooldownUntilEpochMillis = base + 30 * 60_000L,
             now = base,
         )
         val decision = detector.processObservedEvent(
-            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            observedEvent(nodes = shortsViewerNodes()),
             settings = settings,
             permissions = permissions,
             cooldownUntilEpochMillis = base + 30 * 60_000L,
@@ -423,21 +492,21 @@ class ShortVideoDetectorTest {
     fun rateLimitBlocksImmediateRepeatTrigger() {
         val base = 100_000L
         detector.processObservedEvent(
-            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            observedEvent(nodes = shortsViewerNodes()),
             settings = settings,
             permissions = permissions,
             cooldownUntilEpochMillis = 0L,
             now = base,
         )
         val firstTrigger = detector.processObservedEvent(
-            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            observedEvent(nodes = shortsViewerNodes()),
             settings = settings,
             permissions = permissions,
             cooldownUntilEpochMillis = 0L,
             now = base + 20 * 60_000L,
         )!!
         val secondDecision = detector.processObservedEvent(
-            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            observedEvent(nodes = shortsViewerNodes()),
             settings = settings,
             permissions = permissions,
             cooldownUntilEpochMillis = 0L,
@@ -459,14 +528,14 @@ class ShortVideoDetectorTest {
         )
 
         detector.processObservedEvent(
-            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            observedEvent(nodes = shortsViewerNodes()),
             settings = settings,
             permissions = limitedPermissions,
             cooldownUntilEpochMillis = 0L,
             now = base,
         )
         val decision = detector.processObservedEvent(
-            observedEvent(texts = setOf("Shorts", "Like", "Share")),
+            observedEvent(nodes = shortsViewerNodes()),
             settings = settings,
             permissions = limitedPermissions,
             cooldownUntilEpochMillis = 0L,
