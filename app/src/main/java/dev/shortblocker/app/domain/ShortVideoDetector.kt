@@ -17,7 +17,6 @@ import java.time.ZoneId
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.min
-import kotlin.math.roundToInt
 
 data class DetectionDecision(
     val snapshot: DetectionSnapshot,
@@ -178,20 +177,33 @@ class ShortVideoDetector {
         val target = ServiceTarget.fromPackage(scenario.packageName)
         val youtubeRuntimeTarget = target == ServiceTarget.YOUTUBE && settings.supportedApps.isEnabled(target)
         val targetAppContext = if (youtubeRuntimeTarget) {
-            min(30, 18 + min(scenario.relaunchCount, 3) * 4)
+            val settledSessionBonus = if (scenario.sessionMinutes >= APP_CONTEXT_SETTLE_MINUTES) {
+                APP_CONTEXT_SETTLE_BONUS
+            } else {
+                0
+            }
+            min(
+                APP_CONTEXT_MAX,
+                APP_CONTEXT_BASE +
+                    min(scenario.relaunchCount, 2) * RELAUNCH_CONTEXT_BONUS +
+                    settledSessionBonus,
+            )
         } else {
             0
         }
+        val keywordConfidence = min(KEYWORD_CONFIDENCE_MAX, scenario.keywords.size * KEYWORD_HIT_WEIGHT)
+        val actionRailConfidence = if (UiFeature.ACTION_RAIL in scenario.uiFeatures) ACTION_RAIL_CONFIDENCE else 0
+        val videoStructureConfidence = if (UiFeature.VIDEO_STRUCTURE in scenario.uiFeatures) VIDEO_STRUCTURE_CONFIDENCE else 0
+        val fullscreenConfidence = if (UiFeature.FULLSCREEN_VERTICAL in scenario.uiFeatures) FULLSCREEN_CONFIDENCE else 0
         val shortsLikeUi = min(
-            35,
-            scenario.keywords.size * 6 +
-                (if (UiFeature.FULLSCREEN_VERTICAL in scenario.uiFeatures) 8 else 0) +
-                (if (UiFeature.ACTION_RAIL in scenario.uiFeatures) 7 else 0) +
-                (if (UiFeature.VIDEO_STRUCTURE in scenario.uiFeatures) 8 else 0),
+            SHORTS_UI_MAX,
+            keywordConfidence + actionRailConfidence + videoStructureConfidence + fullscreenConfidence,
         )
+        val sessionMinutesScore = min(SESSION_MINUTES_MAX, scenario.sessionMinutes)
+        val dwellScore = min(DWELL_SECONDS_MAX, scenario.dwellSeconds / 3)
         val sessionDuration = min(
-            15,
-            (scenario.sessionMinutes * 0.65 + min(scenario.dwellSeconds, 30) * 0.1).roundToInt(),
+            SESSION_DURATION_MAX,
+            sessionMinutesScore + dwellScore,
         )
         val total = min(
             100,
@@ -207,20 +219,20 @@ class ShortVideoDetector {
             DetectionBreakdown(
                 label = "Target App Context",
                 value = targetAppContext,
-                max = 30,
+                max = APP_CONTEXT_MAX,
                 detail = "${scenario.appName} / 再突入 ${scenario.relaunchCount}回",
             ),
             DetectionBreakdown(
-                label = "Shorts-like UI",
+                label = "Viewer Surface Confidence",
                 value = shortsLikeUi,
-                max = 35,
-                detail = "キーワード ${scenario.keywords.size}件 / UI特徴 ${scenario.uiFeatures.size}件",
+                max = SHORTS_UI_MAX,
+                detail = "keyword ${keywordConfidence} / rail ${actionRailConfidence} / structure ${videoStructureConfidence} / vertical ${fullscreenConfidence}",
             ),
             DetectionBreakdown(
-                label = "Session Duration",
+                label = "Persistence",
                 value = sessionDuration,
-                max = 15,
-                detail = "${scenario.sessionMinutes}分継続 / 滞在 ${scenario.dwellSeconds}秒",
+                max = SESSION_DURATION_MAX,
+                detail = "session ${sessionMinutesScore} / dwell ${dwellScore}",
             ),
         )
         val snapshot = DetectionSnapshot(
@@ -475,10 +487,24 @@ class ShortVideoDetector {
             now = now,
         )
         val recentWarning = lastWarningTimes[packageName] ?: 0L
-        val shouldTrigger = decision.shouldTrigger && now - recentWarning > WARNING_RATE_LIMIT_MS
+        val rateLimitReady = now - recentWarning > WARNING_RATE_LIMIT_MS
+        val shouldTrigger = decision.shouldTrigger && rateLimitReady
         logDebug(
-            "pkg=$packageName stage=${stage.name} shortsSwipes=${scoreableEvidence.swipeBurst} " +
-                "media=${mediaPlaybackLabel(mediaPlaybackActive)} score=${decision.snapshot.score} trigger=$shouldTrigger",
+            buildDebugLog(
+                packageName = packageName,
+                stage = stage,
+                surfaceSignals = surfaceSignals,
+                scoreableEvidence = scoreableEvidence,
+                scenario = scenario,
+                uiFeatures = uiFeatures,
+                settings = settings,
+                permissions = permissions,
+                cooldownUntilEpochMillis = cooldownUntilEpochMillis,
+                rateLimitReady = rateLimitReady,
+                now = now,
+                decision = decision,
+                shouldTrigger = shouldTrigger,
+            ),
         )
         if (shouldTrigger) {
             lastWarningTimes[packageName] = now
@@ -568,8 +594,9 @@ class ShortVideoDetector {
         val textMatches = keywords.filter { keyword ->
             signals.normalizedText.contains(keyword.lowercase(Locale.US))
         }
+        val viewIdTokens = tokenizeViewIdValue(signals.normalizedViewIds)
         val idMatches = youtubeShortsViewIdHints
-            .filter { hint -> signals.normalizedViewIds.contains(hint) }
+            .filter { hint -> hint.lowercase(Locale.US) in viewIdTokens }
             .map { hint -> "ui:$hint" }
         return (textMatches + idMatches).distinct()
     }
@@ -578,10 +605,19 @@ class ShortVideoDetector {
         if (signals.isEmpty()) {
             return emptyList()
         }
-        val searchable = "${signals.normalizedText} ${signals.normalizedViewIds}"
+        val viewIdTokens = tokenizeViewIdValue(signals.normalizedViewIds)
         return youtubeActionRailHints.filter { hint ->
-            searchable.contains(hint.lowercase(Locale.US))
+            signals.normalizedText.contains(hint.lowercase(Locale.US)) ||
+                hint.lowercase(Locale.US) in viewIdTokens
         }.distinct()
+    }
+
+    private fun tokenizeViewIdValue(value: String): Set<String> {
+        return value
+            .split(VIEW_ID_TOKEN_SPLIT_REGEX)
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .toSet()
     }
 
     private fun analyzeYoutubeViewerSurface(
@@ -591,19 +627,23 @@ class ShortVideoDetector {
     ): ViewerSurfaceSignals {
         val positionedNodes = signals.nodes.filter { it.hasBounds }
         if (positionedNodes.isEmpty()) {
+            val normalVideoUiDetected = detectStandardVideoUi(
+                signals = signals,
+                positionedNodes = emptyList(),
+                frameWidth = 0,
+                frameHeight = 0,
+            )
+            val fallbackKeywordHits = rawKeywordHits
+                .filterNot { it.startsWith("ui:") }
+                .toSet()
+            val fallbackViewerEvidence = !normalVideoUiDetected &&
+                fallbackKeywordHits.isNotEmpty() &&
+                rawActionHints.size >= FALLBACK_MIN_ACTION_HINTS
             return ViewerSurfaceSignals(
-                keywordHits = rawKeywordHits,
-                actionHints = rawActionHints,
-                viewerEvidence = hasYoutubeShortsViewerEvidence(
-                    keywordHits = rawKeywordHits,
-                    actionHints = rawActionHints,
-                ),
-                normalVideoUiDetected = detectStandardVideoUi(
-                    signals = signals,
-                    positionedNodes = emptyList(),
-                    frameWidth = 0,
-                    frameHeight = 0,
-                ),
+                keywordHits = fallbackKeywordHits,
+                actionHints = if (fallbackViewerEvidence) rawActionHints else emptySet(),
+                viewerEvidence = fallbackViewerEvidence,
+                normalVideoUiDetected = normalVideoUiDetected,
             )
         }
 
@@ -643,16 +683,18 @@ class ShortVideoDetector {
         val textMatches = youtubeShortsKeywords.filter { keyword ->
             node.normalizedText.contains(keyword.lowercase(Locale.US))
         }
+        val viewIdTokens = tokenizeViewIdValue(node.normalizedViewId)
         val idMatches = youtubeShortsViewIdHints
-            .filter { hint -> node.normalizedViewId.contains(hint) }
+            .filter { hint -> hint.lowercase(Locale.US) in viewIdTokens }
             .map { hint -> "ui:$hint" }
         return (textMatches + idMatches).distinct()
     }
 
     private fun detectActionHintsForNode(node: SignalNode): List<String> {
-        val searchable = "${node.normalizedText} ${node.normalizedViewId}"
+        val viewIdTokens = tokenizeViewIdValue(node.normalizedViewId)
         return youtubeActionRailHints.filter { hint ->
-            searchable.contains(hint.lowercase(Locale.US))
+            node.normalizedText.contains(hint.lowercase(Locale.US)) ||
+                hint.lowercase(Locale.US) in viewIdTokens
         }.distinct()
     }
 
@@ -679,11 +721,11 @@ class ShortVideoDetector {
         frameWidth: Int,
         frameHeight: Int,
     ): Boolean {
-        val searchable = "${signals.normalizedText} ${signals.normalizedViewIds}"
+        val viewIdTokens = tokenizeViewIdValue(signals.normalizedViewIds)
         val hasExplicitPlayerControl = youtubeStandardVideoHints.any { hint ->
-            searchable.contains(hint.lowercase(Locale.US))
+            signals.normalizedText.contains(hint.lowercase(Locale.US))
         } || youtubeStandardVideoViewIdHints.any { hint ->
-            signals.normalizedViewIds.contains(hint)
+            hint.lowercase(Locale.US) in viewIdTokens
         }
         if (hasExplicitPlayerControl) {
             return true
@@ -822,6 +864,86 @@ class ShortVideoDetector {
         return lastSeenAt != 0L && now - lastSeenAt <= ttlMs
     }
 
+    private fun buildDebugLog(
+        packageName: String,
+        stage: DetectionStage,
+        surfaceSignals: ViewerSurfaceSignals,
+        scoreableEvidence: ScoreableShortsEvidence,
+        scenario: DetectionScenario,
+        uiFeatures: List<UiFeature>,
+        settings: MonitorSettings,
+        permissions: PermissionSnapshot,
+        cooldownUntilEpochMillis: Long,
+        rateLimitReady: Boolean,
+        now: Long,
+        decision: DetectionDecision,
+        shouldTrigger: Boolean,
+    ): String {
+        val targetReady = settings.supportedApps.isEnabled(ServiceTarget.YOUTUBE)
+        val alertsReady = settings.alertsEnabled
+        val permissionsReady = permissions.canIntervene
+        val cooldownReady = now >= cooldownUntilEpochMillis
+        val evidenceReady = hasReliableShortVideoEvidence(scenario)
+        val scoreReady = decision.snapshot.score >= settings.threshold
+        val blockReasons = buildList {
+            if (!alertsReady) add("alerts")
+            if (!targetReady) add("target")
+            if (!permissionsReady) add("permissions")
+            if (!cooldownReady) add("cooldown")
+            if (!evidenceReady) add("evidence")
+            if (!scoreReady) add("threshold")
+            if (!rateLimitReady) add("rate-limit")
+        }
+        val triggerLabel = if (shouldTrigger) {
+            "YES"
+        } else {
+            "NO[${blockReasons.joinToString(",").ifEmpty { "blocked" }}]"
+        }
+        val surfaceLabel = when {
+            surfaceSignals.viewerEvidence -> "viewer"
+            surfaceSignals.normalVideoUiDetected -> "normal-video"
+            else -> "unknown"
+        }
+        return buildString {
+            append("pkg=").append(packageName)
+            append(" | stage=").append(stage.name)
+            append(" | surface=").append(surfaceLabel)
+            append(" | score=").append(decision.snapshot.score).append('/').append(settings.threshold)
+            append(" | trigger=").append(triggerLabel)
+            append(" | gates[a=").append(flag(alertsReady))
+            append(" t=").append(flag(targetReady))
+            append(" p=").append(flag(permissionsReady))
+            append(" c=").append(flag(cooldownReady))
+            append(" e=").append(flag(evidenceReady))
+            append(" s=").append(flag(scoreReady))
+            append(" r=").append(flag(rateLimitReady)).append(']')
+            append(" | kw=").append(formatHits(scoreableEvidence.keywordHits))
+            append(" | act=").append(formatHits(scoreableEvidence.actionHints))
+            append(" | ui=").append(formatUiFeatures(uiFeatures))
+            append(" | session=").append(scenario.sessionMinutes).append("m")
+            append(" dwell=").append(scenario.dwellSeconds).append("s")
+            append(" relaunch=").append(scenario.relaunchCount)
+            append(" swipes=").append(scoreableEvidence.swipeBurst)
+            append(" | media=").append(mediaPlaybackLabel(scenario.mediaPlaybackActive))
+        }
+    }
+
+    private fun flag(value: Boolean): String = if (value) "Y" else "N"
+
+    private fun formatHits(values: Set<String>): String {
+        if (values.isEmpty()) {
+            return "-"
+        }
+        return values.sorted().joinToString(",")
+    }
+
+    private fun formatUiFeatures(values: List<UiFeature>): String {
+        if (values.isEmpty()) {
+            return "-"
+        }
+        return values.map(UiFeature::name).sorted().joinToString(",")
+    }
+
     private fun logDebug(message: String) {
         runCatching { android.util.Log.d(TAG, message) }
     }
@@ -945,6 +1067,20 @@ class ShortVideoDetector {
 
     private companion object {
         const val TAG = "ShortDetector"
+        const val APP_CONTEXT_MAX = 20
+        const val APP_CONTEXT_BASE = 8
+        const val RELAUNCH_CONTEXT_BONUS = 4
+        const val APP_CONTEXT_SETTLE_BONUS = 4
+        const val APP_CONTEXT_SETTLE_MINUTES = 3
+        const val SHORTS_UI_MAX = 55
+        const val KEYWORD_CONFIDENCE_MAX = 15
+        const val KEYWORD_HIT_WEIGHT = 8
+        const val ACTION_RAIL_CONFIDENCE = 14
+        const val VIDEO_STRUCTURE_CONFIDENCE = 18
+        const val FULLSCREEN_CONFIDENCE = 8
+        const val SESSION_DURATION_MAX = 25
+        const val SESSION_MINUTES_MAX = 15
+        const val DWELL_SECONDS_MAX = 10
         const val SCROLL_BURST_WINDOW_MS = 20_000L
         const val SHORTS_SWIPE_DEBOUNCE_MS = 900L
         const val SHORTS_KEYWORD_TTL_MS = 20_000L
@@ -952,9 +1088,11 @@ class ShortVideoDetector {
         const val SHORTS_EVIDENCE_TTL_MS = 12_000L
         const val WARNING_RATE_LIMIT_MS = 30_000L
         const val RELAUNCH_WINDOW_MS = 5 * 60_000L
+        const val FALLBACK_MIN_ACTION_HINTS = 3
         const val REQUIRED_SHORTS_SWIPES = 2
         const val MIN_ACTION_RAIL_HINTS = 2
         const val MAX_NODE_DEPTH = 5
         const val MAX_NODE_COUNT = 80
+        val VIEW_ID_TOKEN_SPLIT_REGEX = Regex("[^a-z0-9]+")
     }
 }

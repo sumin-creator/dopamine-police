@@ -61,7 +61,7 @@ flowchart TD
 
 | Item | Current value | Meaning |
 | --- | --- | --- |
-| `threshold` | `55` | 通知候補になるスコア閾値 |
+| `threshold` | `68` | 通知候補になるスコア閾値 |
 | `REQUIRED_SHORTS_SWIPES` | `2` | `CONTINUOUS_TRANSITIONS` 表示用の目安 |
 | `MIN_ACTION_RAIL_HINTS` | `2` | viewer evidence に必要な action hint 数 |
 | `SHORTS_KEYWORD_TTL_MS` | `20_000` | Shorts surface hint の保持時間 |
@@ -76,6 +76,7 @@ flowchart TD
 - 実ランタイムの `processEvent()` は現状 `YouTube` 以外を即除外します。
 - `README.md` には Instagram / TikTok も書かれていますが、通知発火ロジックはまだ YouTube Shorts 寄りです。
 - 時間帯は `timeBand` として保持されますが、スコア加点には使っていません。
+- スコア配分は `App Context 20` / `Viewer Surface Confidence 55` / `Persistence 25` の合計 `100` 点です。
 - `keyword` と `action hint` は別 TTL で保持し、信頼証拠の更新は新しい Shorts surface hint を見た時だけ行います。
 - `Usage Stats` と通知権限は監視表示には残りますが、発火可否の必須条件からは外しています。
 - `swipeBurst` はログと `CONTINUOUS_TRANSITIONS` の補助指標として残していますが、通知発火条件とスコア計算には使っていません。
