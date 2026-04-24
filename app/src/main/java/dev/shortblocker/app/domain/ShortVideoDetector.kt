@@ -17,7 +17,6 @@ import java.time.ZoneId
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.min
-import kotlin.math.roundToInt
 
 data class DetectionDecision(
     val snapshot: DetectionSnapshot,
@@ -178,20 +177,26 @@ class ShortVideoDetector {
         val target = ServiceTarget.fromPackage(scenario.packageName)
         val youtubeRuntimeTarget = target == ServiceTarget.YOUTUBE && settings.supportedApps.isEnabled(target)
         val targetAppContext = if (youtubeRuntimeTarget) {
-            min(30, 18 + min(scenario.relaunchCount, 3) * 4)
+            min(
+                APP_CONTEXT_MAX,
+                APP_CONTEXT_BASE + min(scenario.relaunchCount, 2) * RELAUNCH_CONTEXT_BONUS,
+            )
         } else {
             0
         }
+        val keywordConfidence = min(KEYWORD_CONFIDENCE_MAX, scenario.keywords.size * KEYWORD_HIT_WEIGHT)
+        val actionRailConfidence = if (UiFeature.ACTION_RAIL in scenario.uiFeatures) ACTION_RAIL_CONFIDENCE else 0
+        val videoStructureConfidence = if (UiFeature.VIDEO_STRUCTURE in scenario.uiFeatures) VIDEO_STRUCTURE_CONFIDENCE else 0
+        val fullscreenConfidence = if (UiFeature.FULLSCREEN_VERTICAL in scenario.uiFeatures) FULLSCREEN_CONFIDENCE else 0
         val shortsLikeUi = min(
-            35,
-            scenario.keywords.size * 6 +
-                (if (UiFeature.FULLSCREEN_VERTICAL in scenario.uiFeatures) 8 else 0) +
-                (if (UiFeature.ACTION_RAIL in scenario.uiFeatures) 7 else 0) +
-                (if (UiFeature.VIDEO_STRUCTURE in scenario.uiFeatures) 8 else 0),
+            SHORTS_UI_MAX,
+            keywordConfidence + actionRailConfidence + videoStructureConfidence + fullscreenConfidence,
         )
+        val sessionMinutesScore = min(SESSION_MINUTES_MAX, scenario.sessionMinutes)
+        val dwellScore = min(DWELL_SECONDS_MAX, scenario.dwellSeconds / 3)
         val sessionDuration = min(
-            15,
-            (scenario.sessionMinutes * 0.65 + min(scenario.dwellSeconds, 30) * 0.1).roundToInt(),
+            SESSION_DURATION_MAX,
+            sessionMinutesScore + dwellScore,
         )
         val total = min(
             100,
@@ -207,20 +212,20 @@ class ShortVideoDetector {
             DetectionBreakdown(
                 label = "Target App Context",
                 value = targetAppContext,
-                max = 30,
+                max = APP_CONTEXT_MAX,
                 detail = "${scenario.appName} / 再突入 ${scenario.relaunchCount}回",
             ),
             DetectionBreakdown(
-                label = "Shorts-like UI",
+                label = "Viewer Surface Confidence",
                 value = shortsLikeUi,
-                max = 35,
-                detail = "キーワード ${scenario.keywords.size}件 / UI特徴 ${scenario.uiFeatures.size}件",
+                max = SHORTS_UI_MAX,
+                detail = "keyword ${keywordConfidence} / rail ${actionRailConfidence} / structure ${videoStructureConfidence} / vertical ${fullscreenConfidence}",
             ),
             DetectionBreakdown(
-                label = "Session Duration",
+                label = "Persistence",
                 value = sessionDuration,
-                max = 15,
-                detail = "${scenario.sessionMinutes}分継続 / 滞在 ${scenario.dwellSeconds}秒",
+                max = SESSION_DURATION_MAX,
+                detail = "session ${sessionMinutesScore} / dwell ${dwellScore}",
             ),
         )
         val snapshot = DetectionSnapshot(
@@ -945,6 +950,18 @@ class ShortVideoDetector {
 
     private companion object {
         const val TAG = "ShortDetector"
+        const val APP_CONTEXT_MAX = 20
+        const val APP_CONTEXT_BASE = 10
+        const val RELAUNCH_CONTEXT_BONUS = 5
+        const val SHORTS_UI_MAX = 55
+        const val KEYWORD_CONFIDENCE_MAX = 15
+        const val KEYWORD_HIT_WEIGHT = 8
+        const val ACTION_RAIL_CONFIDENCE = 14
+        const val VIDEO_STRUCTURE_CONFIDENCE = 18
+        const val FULLSCREEN_CONFIDENCE = 8
+        const val SESSION_DURATION_MAX = 25
+        const val SESSION_MINUTES_MAX = 15
+        const val DWELL_SECONDS_MAX = 10
         const val SCROLL_BURST_WINDOW_MS = 20_000L
         const val SHORTS_SWIPE_DEBOUNCE_MS = 900L
         const val SHORTS_KEYWORD_TTL_MS = 20_000L
