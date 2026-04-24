@@ -480,10 +480,24 @@ class ShortVideoDetector {
             now = now,
         )
         val recentWarning = lastWarningTimes[packageName] ?: 0L
-        val shouldTrigger = decision.shouldTrigger && now - recentWarning > WARNING_RATE_LIMIT_MS
+        val rateLimitReady = now - recentWarning > WARNING_RATE_LIMIT_MS
+        val shouldTrigger = decision.shouldTrigger && rateLimitReady
         logDebug(
-            "pkg=$packageName stage=${stage.name} shortsSwipes=${scoreableEvidence.swipeBurst} " +
-                "media=${mediaPlaybackLabel(mediaPlaybackActive)} score=${decision.snapshot.score} trigger=$shouldTrigger",
+            buildDebugLog(
+                packageName = packageName,
+                stage = stage,
+                surfaceSignals = surfaceSignals,
+                scoreableEvidence = scoreableEvidence,
+                scenario = scenario,
+                uiFeatures = uiFeatures,
+                settings = settings,
+                permissions = permissions,
+                cooldownUntilEpochMillis = cooldownUntilEpochMillis,
+                rateLimitReady = rateLimitReady,
+                now = now,
+                decision = decision,
+                shouldTrigger = shouldTrigger,
+            ),
         )
         if (shouldTrigger) {
             lastWarningTimes[packageName] = now
@@ -825,6 +839,86 @@ class ShortVideoDetector {
 
     private fun isWithinWindow(lastSeenAt: Long, now: Long, ttlMs: Long): Boolean {
         return lastSeenAt != 0L && now - lastSeenAt <= ttlMs
+    }
+
+    private fun buildDebugLog(
+        packageName: String,
+        stage: DetectionStage,
+        surfaceSignals: ViewerSurfaceSignals,
+        scoreableEvidence: ScoreableShortsEvidence,
+        scenario: DetectionScenario,
+        uiFeatures: List<UiFeature>,
+        settings: MonitorSettings,
+        permissions: PermissionSnapshot,
+        cooldownUntilEpochMillis: Long,
+        rateLimitReady: Boolean,
+        now: Long,
+        decision: DetectionDecision,
+        shouldTrigger: Boolean,
+    ): String {
+        val targetReady = settings.supportedApps.isEnabled(ServiceTarget.YOUTUBE)
+        val alertsReady = settings.alertsEnabled
+        val permissionsReady = permissions.canIntervene
+        val cooldownReady = now >= cooldownUntilEpochMillis
+        val evidenceReady = hasReliableShortVideoEvidence(scenario)
+        val scoreReady = decision.snapshot.score >= settings.threshold
+        val blockReasons = buildList {
+            if (!alertsReady) add("alerts")
+            if (!targetReady) add("target")
+            if (!permissionsReady) add("permissions")
+            if (!cooldownReady) add("cooldown")
+            if (!evidenceReady) add("evidence")
+            if (!scoreReady) add("threshold")
+            if (!rateLimitReady) add("rate-limit")
+        }
+        val triggerLabel = if (shouldTrigger) {
+            "YES"
+        } else {
+            "NO[${blockReasons.joinToString(",").ifEmpty { "blocked" }}]"
+        }
+        val surfaceLabel = when {
+            surfaceSignals.viewerEvidence -> "viewer"
+            surfaceSignals.normalVideoUiDetected -> "normal-video"
+            else -> "unknown"
+        }
+        return buildString {
+            append("pkg=").append(packageName)
+            append(" | stage=").append(stage.name)
+            append(" | surface=").append(surfaceLabel)
+            append(" | score=").append(decision.snapshot.score).append('/').append(settings.threshold)
+            append(" | trigger=").append(triggerLabel)
+            append(" | gates[a=").append(flag(alertsReady))
+            append(" t=").append(flag(targetReady))
+            append(" p=").append(flag(permissionsReady))
+            append(" c=").append(flag(cooldownReady))
+            append(" e=").append(flag(evidenceReady))
+            append(" s=").append(flag(scoreReady))
+            append(" r=").append(flag(rateLimitReady)).append(']')
+            append(" | kw=").append(formatHits(scoreableEvidence.keywordHits))
+            append(" | act=").append(formatHits(scoreableEvidence.actionHints))
+            append(" | ui=").append(formatUiFeatures(uiFeatures))
+            append(" | session=").append(scenario.sessionMinutes).append("m")
+            append(" dwell=").append(scenario.dwellSeconds).append("s")
+            append(" relaunch=").append(scenario.relaunchCount)
+            append(" swipes=").append(scoreableEvidence.swipeBurst)
+            append(" | media=").append(mediaPlaybackLabel(scenario.mediaPlaybackActive))
+        }
+    }
+
+    private fun flag(value: Boolean): String = if (value) "Y" else "N"
+
+    private fun formatHits(values: Set<String>): String {
+        if (values.isEmpty()) {
+            return "-"
+        }
+        return values.sorted().joinToString(",")
+    }
+
+    private fun formatUiFeatures(values: List<UiFeature>): String {
+        if (values.isEmpty()) {
+            return "-"
+        }
+        return values.map(UiFeature::name).sorted().joinToString(",")
     }
 
     private fun logDebug(message: String) {
