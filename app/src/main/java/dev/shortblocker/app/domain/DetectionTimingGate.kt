@@ -36,13 +36,7 @@ internal class DetectionTimingGate(
             resetForPackage(packageName)
         }
 
-        val lastUpdatedAt = lastUpdatedAtMillis
-        if (lastUpdatedAt != null && wasOverThreshold) {
-            val elapsedMillis = now - lastUpdatedAt
-            if (elapsedMillis > 0L) {
-                accumulatedMillis += elapsedMillis.coerceAtMost(maxCountableGapMillis)
-            }
-        }
+        accumulateOverThresholdIntervalUntil(now)
         lastUpdatedAtMillis = now
         wasOverThreshold = overThreshold
 
@@ -69,6 +63,20 @@ internal class DetectionTimingGate(
     }
 
     @Synchronized
+    fun pause(now: Long? = null): DetectionTimingResult {
+        if (now != null) {
+            accumulateOverThresholdIntervalUntil(now)
+        }
+        lastUpdatedAtMillis = null
+        wasOverThreshold = false
+        return DetectionTimingResult(
+            accumulatedMillis = accumulatedMillis,
+            requiredMillis = 0L,
+            readyToTrigger = false,
+        )
+    }
+
+    @Synchronized
     fun reset() {
         currentPackageName = ""
         accumulatedMillis = 0L
@@ -83,6 +91,16 @@ internal class DetectionTimingGate(
         lastUpdatedAtMillis = null
         wasOverThreshold = false
         hasTriggered = false
+    }
+
+    private fun accumulateOverThresholdIntervalUntil(now: Long) {
+        val lastUpdatedAt = lastUpdatedAtMillis
+        if (lastUpdatedAt != null && wasOverThreshold) {
+            val elapsedMillis = now - lastUpdatedAt
+            if (elapsedMillis > 0L) {
+                accumulatedMillis += elapsedMillis.coerceAtMost(maxCountableGapMillis)
+            }
+        }
     }
 
     private companion object {

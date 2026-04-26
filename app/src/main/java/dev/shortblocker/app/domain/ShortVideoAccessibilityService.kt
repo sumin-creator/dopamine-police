@@ -48,10 +48,10 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
         // 対象アプリならタイマーを開始、それ以外なら停止
         val targetPackageName = safeEvent.packageName?.toString()
-        if (ServiceTarget.fromPackage(targetPackageName) != null) {
+        if (isDetectionTimingTarget(targetPackageName)) {
             startMonitoringTimer()
         } else {
-            stopMonitoringTimer()
+            pauseMonitoringTimer(now = System.currentTimeMillis())
         }
 
         if (decision != null) {
@@ -83,12 +83,12 @@ class ShortVideoAccessibilityService : AccessibilityService() {
                     runCatching { rootNode?.recycle() }
                     continue
                 }
-                val isTargetApp = ServiceTarget.fromPackage(activePackage) != null
-                if (!isTargetApp) {
-                    detectionTimingGate.reset()
-                    logDetectionTimingGateReset("non-target-app pkg=$activePackage")
+                if (!isDetectionTimingTarget(activePackage)) {
+                    val now = System.currentTimeMillis()
+                    pauseDetectionTiming("non-target-app pkg=$activePackage", now)
                     runCatching { rootNode?.recycle() }
-                    continue
+                    pauseMonitoringTimer(now)
+                    return@launch
                 }
                 val isPlaying = checkPlaybackActive(activePackage)
                 val detector = application.container.detector
@@ -134,6 +134,12 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         detectionTimingGate.reset()
     }
 
+    private fun pauseMonitoringTimer(now: Long = System.currentTimeMillis()) {
+        monitorJob?.cancel()
+        monitorJob = null
+        pauseDetectionTiming("monitor-paused", now)
+    }
+
     private fun handleDecision(
         decision: DetectionDecision,
         shouldTrigger: Boolean,
@@ -163,8 +169,11 @@ class ShortVideoAccessibilityService : AccessibilityService() {
     ): Boolean {
         val snapshot = decision.snapshot
         val target = ServiceTarget.fromPackage(snapshot.packageName)
+        if (!isDetectionTimingTarget(snapshot.packageName)) {
+            pauseDetectionTiming("non-target-decision pkg=${snapshot.packageName}", snapshot.createdAtEpochMillis)
+            return false
+        }
         val blocked = state.pendingIntervention != null ||
-            target == null ||
             !state.settings.alertsEnabled ||
             !state.settings.supportedApps.isEnabled(target) ||
             !state.permissions.canIntervene ||
@@ -188,6 +197,10 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
     private fun detectionDelayMillis(state: AppState): Long {
         return TimeUnit.MINUTES.toMillis(state.settings.cooldownMinutes.coerceAtLeast(1).toLong())
+    }
+
+    private fun isDetectionTimingTarget(packageName: String?): Boolean {
+        return ServiceTarget.fromPackage(packageName) == ServiceTarget.YOUTUBE
     }
 
     private fun logDetectionTiming(
@@ -221,8 +234,12 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         )
     }
 
-    private fun logDetectionTimingGateReset(reason: String) {
-        Log.d(TAG, "timing gate reset reason=$reason")
+    private fun pauseDetectionTiming(reason: String, now: Long) {
+        val timing = detectionTimingGate.pause(now)
+        Log.d(
+            TAG,
+            "timing paused reason=$reason accumulated=${"%.1f".format(timing.accumulatedMillis / 1000.0)}s",
+        )
     }
 
     private fun logDetectionTimingSkipped(reason: String) {
