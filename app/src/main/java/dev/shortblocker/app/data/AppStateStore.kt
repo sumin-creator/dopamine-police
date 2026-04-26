@@ -92,6 +92,26 @@ class AppStateStore(
         }
     }
 
+    suspend fun addWatchTime(seconds: Int) {
+        context.shortblockerDataStore.updateDataCompat { current ->
+            // 現在の日付（エポックからの経過日数）を計算
+            val currentDays = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
+
+            if (current.lastResetDateEpochDays != currentDays) {
+                // 日付が変わっていれば0にリセットしてから加算
+                current.copy(
+                    dailyShortsWatchSeconds = seconds.toLong(),
+                    lastResetDateEpochDays = currentDays
+                )
+            } else {
+                // 同じ日であれば純粋に秒数を加算
+                current.copy(
+                    dailyShortsWatchSeconds = current.dailyShortsWatchSeconds + seconds
+                )
+            }
+        }
+    }
+
     suspend fun applyUserAction(action: UserAction, source: String) {
         context.shortblockerDataStore.updateDataCompat { current ->
             val pending = current.pendingIntervention ?: return@updateDataCompat current
