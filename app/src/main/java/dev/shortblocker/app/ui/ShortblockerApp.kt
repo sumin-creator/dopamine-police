@@ -506,42 +506,60 @@ private fun HomeSpeechBubble(
     modifier: Modifier = Modifier,
 ) {
     val bubbleBorder = Color(0xFFEDE8E0)
+    val tailWidth = 14.dp
+    val bubbleRadius = 16.dp
     Box(
-        modifier = modifier.widthIn(max = 180.dp),
-        contentAlignment = Alignment.CenterStart,
+        modifier = modifier
+            .widthIn(max = 180.dp)
+            .drawBehind {
+                val bubblePath = speechBubblePath(
+                    size = size,
+                    tailWidth = tailWidth.toPx(),
+                    tailHeight = 22.dp.toPx(),
+                    radius = bubbleRadius.toPx(),
+                )
+                drawPath(bubblePath, color = Color.White)
+                drawPath(bubblePath, color = bubbleBorder, style = Stroke(width = 1.5.dp.toPx()))
+            },
     ) {
-        Canvas(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .size(width = 14.dp, height = 20.dp),
-        ) {
-            val tail = Path().apply {
-                moveTo(0f, size.height / 2f)
-                lineTo(size.width, 0f)
-                lineTo(size.width, size.height)
-                close()
-            }
-            drawPath(tail, color = Color.White)
-            drawPath(tail, color = bubbleBorder, style = Stroke(width = 1.5f))
-        }
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            modifier = Modifier
-                .padding(start = 12.dp)
-                .border(1.dp, bubbleBorder, RoundedCornerShape(16.dp))
-                .widthIn(max = 168.dp),
-        ) {
-            Text(
-                text = text,
-                color = Color(0xFF3C3027),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 18.sp,
-                modifier = Modifier.padding(start = 12.dp, top = 10.dp, end = 6.dp, bottom = 10.dp),
-            )
-        }
+        Text(
+            text = text,
+            color = Color(0xFF3C3027),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            lineHeight = 18.sp,
+            modifier = Modifier.padding(start = tailWidth + 12.dp, top = 10.dp, end = 6.dp, bottom = 10.dp),
+        )
+    }
+}
+
+private fun speechBubblePath(
+    size: Size,
+    tailWidth: Float,
+    tailHeight: Float,
+    radius: Float,
+): Path {
+    val left = tailWidth
+    val right = size.width
+    val bottom = size.height
+    val centerY = size.height * 0.54f
+    val halfTail = tailHeight / 2f
+    val roundedRadius = radius.coerceAtMost((right - left) / 2f).coerceAtMost(bottom / 2f)
+
+    return Path().apply {
+        moveTo(left + roundedRadius, 0f)
+        lineTo(right - roundedRadius, 0f)
+        quadraticTo(right, 0f, right, roundedRadius)
+        lineTo(right, bottom - roundedRadius)
+        quadraticTo(right, bottom, right - roundedRadius, bottom)
+        lineTo(left + roundedRadius, bottom)
+        quadraticTo(left, bottom, left, bottom - roundedRadius)
+        lineTo(left, centerY + halfTail)
+        lineTo(0f, centerY)
+        lineTo(left, centerY - halfTail)
+        lineTo(left, roundedRadius)
+        quadraticTo(left, 0f, left + roundedRadius, 0f)
+        close()
     }
 }
 
