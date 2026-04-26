@@ -85,6 +85,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.PlatformTextStyle
@@ -505,7 +506,7 @@ private fun HomeSpeechBubble(
     text: String,
     modifier: Modifier = Modifier,
 ) {
-    val bubbleBorder = Color(0xFFEDE8E0)
+    val bubbleBorder = Color(0xFFC4BFBA)
     val tailWidth = 14.dp
     val bubbleRadius = 16.dp
     Box(
@@ -518,8 +519,14 @@ private fun HomeSpeechBubble(
                     tailHeight = 22.dp.toPx(),
                     radius = bubbleRadius.toPx(),
                 )
+                translate(top = 2.dp.toPx()) {
+                    drawPath(bubblePath, color = Color.Black.copy(alpha = 0.10f))
+                }
+                translate(top = 4.dp.toPx()) {
+                    drawPath(bubblePath, color = Color.Black.copy(alpha = 0.04f))
+                }
                 drawPath(bubblePath, color = Color.White)
-                drawPath(bubblePath, color = bubbleBorder, style = Stroke(width = 1.5.dp.toPx()))
+                drawPath(bubblePath, color = bubbleBorder, style = Stroke(width = 1.dp.toPx()))
             },
     ) {
         Text(
