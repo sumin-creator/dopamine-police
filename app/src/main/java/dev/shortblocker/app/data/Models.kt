@@ -129,7 +129,7 @@ data class SupportedApps(
 }
 
 data class MonitorSettings(
-    val threshold: Int = 68,
+    val threshold: Int = 50,
     val cooldownMinutes: Int = 4,
     val dailyGoalMinutes: Int = 25,
     val alertsEnabled: Boolean = true,
