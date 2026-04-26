@@ -122,9 +122,10 @@ import dev.shortblocker.app.data.WarningLevel
 import dev.shortblocker.app.domain.DetectionDecision
 import java.time.Instant
 import java.time.ZoneId
-import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
+
+private const val EPOCH_DAY_MILLIS = 24 * 60 * 60 * 1000L
 
 private enum class AppTab(val route: String, val title: String, val icon: @Composable () -> Unit) {
     DASHBOARD("dashboard", "ホーム", { Icon(Icons.Outlined.Home, contentDescription = null) }),
@@ -383,7 +384,7 @@ private fun DashboardScreen(state: AppState) {
                 )
             }
         }
-        item { WeeklyUsageCard(sessionLogs = state.sessionLogs) }
+        item { WeeklyUsageCard(state = state) }
     }
 }
 
@@ -735,8 +736,8 @@ private fun minutesTextStyle(fontSize: TextUnit) = ComposeTextStyle(
 )
 
 @Composable
-private fun WeeklyUsageCard(sessionLogs: List<SessionLog>) {
-    val weekly = weeklyUsageMinutes(sessionLogs)
+private fun WeeklyUsageCard(state: AppState) {
+    val weekly = weeklyShortsWatchMinutes(state)
     val maxMinutes = (weekly.maxOfOrNull { it.second } ?: 1).coerceAtLeast(1)
     val axisMax = roundUpAxisMinutes(maxMinutes)
     val axisStep = (axisMax / 4).coerceAtLeast(15)
@@ -803,29 +804,25 @@ private fun WeeklyUsageCard(sessionLogs: List<SessionLog>) {
     }
 }
 
-private fun todayUsageMinutes(sessionLogs: List<SessionLog>): Int {
-    val today = LocalDate.now()
-    return sessionLogs
-        .filter { Instant.ofEpochMilli(it.timestampEndEpochMillis).atZone(ZoneId.systemDefault()).toLocalDate() == today }
-        .sumOf { ((it.timestampEndEpochMillis - it.timestampStartEpochMillis) / 60_000L).toInt().coerceAtLeast(1) }
-}
-
 private fun detectionSecondsToDisplayMinutes(seconds: Long): Int {
     if (seconds <= 0L) return 0
     return ((seconds + 59L) / 60L).toInt()
 }
 
-private fun weeklyUsageMinutes(sessionLogs: List<SessionLog>): List<Pair<String, Int>> {
+private fun weeklyShortsWatchMinutes(state: AppState): List<Pair<String, Int>> {
     val zone = ZoneId.systemDefault()
-    val today = LocalDate.now(zone)
-    val start = today.minusDays(6L)
-    val byDate = sessionLogs.groupBy {
-        Instant.ofEpochMilli(it.timestampEndEpochMillis).atZone(zone).toLocalDate()
+    val todayEpochDays = System.currentTimeMillis() / EPOCH_DAY_MILLIS
+    val byEpochDays = state.shortsWatchHistory
+        .associate { it.epochDays to it.seconds }
+        .toMutableMap()
+    if (state.dailyShortsWatchSeconds > 0L) {
+        byEpochDays[state.lastResetDateEpochDays] = state.dailyShortsWatchSeconds
     }
+
     return (0..6).map { index ->
-        val date = start.plusDays(index.toLong())
-        val minutes = byDate[date].orEmpty()
-            .sumOf { ((it.timestampEndEpochMillis - it.timestampStartEpochMillis) / 60_000L).toInt().coerceAtLeast(1) }
+        val epochDays = todayEpochDays - 6L + index
+        val date = Instant.ofEpochMilli(epochDays * EPOCH_DAY_MILLIS).atZone(zone).toLocalDate()
+        val minutes = detectionSecondsToDisplayMinutes(byEpochDays[epochDays] ?: 0L)
         date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.JAPANESE) to minutes
     }
 }

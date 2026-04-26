@@ -315,6 +315,11 @@ data class DailyStats(
     val goalProgressPercent: Int,
 )
 
+data class DailyShortsWatchTime(
+    val epochDays: Long,
+    val seconds: Long,
+)
+
 data class AppState(
     val settings: MonitorSettings = MonitorSettings(),
     val permissions: PermissionSnapshot = PermissionSnapshot(),
@@ -328,7 +333,8 @@ data class AppState(
 
 
     val dailyShortsWatchSeconds: Long = 0L,
-    val lastResetDateEpochDays: Long = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
+    val lastResetDateEpochDays: Long = System.currentTimeMillis() / (1000 * 60 * 60 * 24),
+    val shortsWatchHistory: List<DailyShortsWatchTime> = emptyList(),
 ) {
     fun dailyStats(): DailyStats {
         val warningCount = sessionLogs.count { it.triggeredWarning }

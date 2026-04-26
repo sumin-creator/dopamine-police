@@ -15,6 +15,9 @@ object AppStateJsonCodec {
         put("foregroundPackageName", state.foregroundPackageName)
         put("dailyShortsWatchSeconds", state.dailyShortsWatchSeconds)
         put("lastResetDateEpochDays", state.lastResetDateEpochDays)
+        put("shortsWatchHistory", JSONArray().apply {
+            state.shortsWatchHistory.forEach { put(encodeDailyShortsWatchTime(it)) }
+        })
         put("sessionLogs", JSONArray().apply {
             state.sessionLogs.forEach { put(encodeSessionLog(it)) }
         })
@@ -41,6 +44,7 @@ object AppStateJsonCodec {
                 "lastResetDateEpochDays",
                 System.currentTimeMillis() / (1000 * 60 * 60 * 24),
             ),
+            shortsWatchHistory = decodeShortsWatchHistory(json.optJSONArray("shortsWatchHistory")),
         )
     }
 
@@ -158,6 +162,28 @@ object AppStateJsonCodec {
         source = json.optString("source"),
         createdAtEpochMillis = json.optLong("createdAtEpochMillis"),
     )
+
+    private fun encodeDailyShortsWatchTime(item: DailyShortsWatchTime): JSONObject = JSONObject().apply {
+        put("epochDays", item.epochDays)
+        put("seconds", item.seconds)
+    }
+
+    private fun decodeShortsWatchHistory(array: JSONArray?): List<DailyShortsWatchTime> {
+        if (array == null) {
+            return emptyList()
+        }
+
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val epochDays = item.optLong("epochDays", Long.MIN_VALUE)
+                val seconds = item.optLong("seconds", 0L)
+                if (epochDays != Long.MIN_VALUE && seconds > 0L) {
+                    add(DailyShortsWatchTime(epochDays = epochDays, seconds = seconds))
+                }
+            }
+        }
+    }
 
     private fun encodeSessionLog(log: SessionLog): JSONObject = JSONObject().apply {
         put("id", log.id)
