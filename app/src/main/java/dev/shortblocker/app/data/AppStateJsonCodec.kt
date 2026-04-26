@@ -35,7 +35,7 @@ object AppStateJsonCodec {
             permissions = decodePermissions(json.optJSONObject("permissions")),
             characterState = decodeCharacterState(json.optJSONObject("characterState")),
             liveMonitor = decodeLiveMonitor(json.optJSONObject("liveMonitor")),
-            pendingIntervention = json.optJSONObject("pendingIntervention")?.let(::decodePendingIntervention),
+            pendingIntervention = null,
             cooldownUntilEpochMillis = json.optLong("cooldownUntilEpochMillis", 0L),
             foregroundAppName = json.optString("foregroundAppName", "未取得"),
             foregroundPackageName = json.optString("foregroundPackageName", ""),

@@ -73,11 +73,7 @@ class AppStateStore(
             )
             current.copy(
                 liveMonitor = current.liveMonitor.applySnapshot(snapshot, status),
-                pendingIntervention = if (shouldTrigger) {
-                    snapshot.toPendingIntervention(source)
-                } else {
-                    current.pendingIntervention
-                },
+                pendingIntervention = null,
                 characterState = if (shouldTrigger) {
                     current.characterState.reactToTrigger(snapshot.warningLevel)
                 } else {
@@ -216,6 +212,7 @@ class AppStateStore(
             val updated = current.copy(
                 settings = current.settings.copy(threshold = normalizedThreshold),
                 sessionLogs = filteredSessionLogs,
+                pendingIntervention = null,
                 dailyShortsWatchSeconds = if (shouldResetDailyWatchTime) 0L else current.dailyShortsWatchSeconds,
                 lastResetDateEpochDays = if (shouldResetDailyWatchTime) currentDays else current.lastResetDateEpochDays,
                 shortsWatchHistory = normalizedShortsWatchHistory,

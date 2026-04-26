@@ -7,6 +7,7 @@ import android.view.accessibility.AccessibilityEvent
 import dev.shortblocker.app.ShortblockerApplication
 import dev.shortblocker.app.data.AppState
 import dev.shortblocker.app.data.ServiceTarget
+import dev.shortblocker.app.data.UiFeature
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -15,7 +16,9 @@ import java.util.concurrent.TimeUnit
 
 class ShortVideoAccessibilityService : AccessibilityService() {
     private val application by lazy { applicationContext as ShortblockerApplication }
-    private val detectionTimingGate = DetectionTimingGate()
+    private val detectionTimingGate = DetectionTimingGate(repeatAfterTrigger = true)
+    private var shortsWatchPackageName: String? = null
+    private var lastShortsWatchSampleAt: Long? = null
 
     // 監視タイマー用のJobを保持
     private var monitorJob: Job? = null
@@ -127,6 +130,7 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         monitorJob?.cancel()
         monitorJob = null
         detectionTimingGate.reset()
+        resetShortsWatchTime()
     }
 
     private fun pauseMonitoringTimer(now: Long = System.currentTimeMillis()) {
@@ -165,25 +169,11 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         val snapshot = decision.snapshot
         val target = ServiceTarget.fromPackage(snapshot.packageName)
         if (!isDetectionTimingTarget(snapshot.packageName)) {
+            pauseShortsWatchTime(snapshot.createdAtEpochMillis)
             pauseDetectionTiming("non-target-decision pkg=${snapshot.packageName}", snapshot.createdAtEpochMillis)
             return false
         }
-        val blocked = state.pendingIntervention != null ||
-            !state.settings.alertsEnabled ||
-            !state.settings.supportedApps.isEnabled(target) ||
-            !state.permissions.canIntervene ||
-            snapshot.createdAtEpochMillis < state.cooldownUntilEpochMillis
-
-        if (blocked) {
-            detectionTimingGate.reset()
-            logDetectionTimingReset(
-                decision = decision,
-                isPlaying = isPlaying,
-                timingCandidate = decision.snapshot.score >= state.settings.threshold,
-                threshold = state.settings.threshold,
-            )
-            return false
-        }
+        updateShortsWatchTime(decision)
 
         val timingCandidate = decision.snapshot.score >= state.settings.threshold
         val timing = detectionTimingGate.update(
@@ -192,7 +182,6 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             now = snapshot.createdAtEpochMillis,
             requiredMillis = detectionDelayMillis(state),
         )
-        recordDetectedShortsTime(timing.addedMillis)
         logDetectionTiming(
             decision = decision,
             timing = timing,
@@ -200,7 +189,12 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             timingCandidate = timingCandidate,
             threshold = state.settings.threshold,
         )
-        return timing.readyToTrigger && decision.triggerCandidate
+        val canIntervene = state.settings.alertsEnabled &&
+            state.settings.supportedApps.isEnabled(target) &&
+            state.permissions.canIntervene &&
+            snapshot.createdAtEpochMillis >= state.cooldownUntilEpochMillis
+
+        return timing.readyToTrigger && decision.triggerCandidate && canIntervene
     }
 
     private fun detectionDelayMillis(state: AppState): Long {
@@ -233,34 +227,57 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         )
     }
 
-    private fun logDetectionTimingReset(
-        decision: DetectionDecision,
-        isPlaying: Boolean,
-        timingCandidate: Boolean,
-        threshold: Int,
-    ) {
-        Log.d(
-            TAG,
-            "timing reset pkg=${decision.snapshot.packageName}" +
-                " score=${decision.snapshot.score}" +
-                " threshold=$threshold" +
-                " candidate=${flag(timingCandidate)}" +
-                " triggerable=${flag(decision.triggerCandidate)}" +
-                " playing=${flag(isPlaying)}",
-        )
-    }
-
     private fun pauseDetectionTiming(reason: String, now: Long) {
         val timing = detectionTimingGate.pause(now)
-        recordDetectedShortsTime(timing.addedMillis)
+        pauseShortsWatchTime(now)
         Log.d(
             TAG,
             "timing paused reason=$reason accumulated=${"%.1f".format(timing.accumulatedMillis / 1000.0)}s",
         )
     }
 
+    private fun updateShortsWatchTime(decision: DetectionDecision) {
+        val snapshot = decision.snapshot
+        if (!isDetectedYoutubeShorts(decision)) {
+            pauseShortsWatchTime(snapshot.createdAtEpochMillis)
+            return
+        }
+
+        val lastSampleAt = lastShortsWatchSampleAt
+        val samePackage = shortsWatchPackageName == snapshot.packageName
+        if (lastSampleAt != null && samePackage) {
+            recordDetectedShortsTime(snapshot.createdAtEpochMillis - lastSampleAt)
+        }
+        shortsWatchPackageName = snapshot.packageName
+        lastShortsWatchSampleAt = snapshot.createdAtEpochMillis
+    }
+
+    private fun pauseShortsWatchTime(now: Long) {
+        val lastSampleAt = lastShortsWatchSampleAt
+        if (lastSampleAt != null) {
+            recordDetectedShortsTime(now - lastSampleAt)
+        }
+        resetShortsWatchTime()
+    }
+
+    private fun resetShortsWatchTime() {
+        shortsWatchPackageName = null
+        lastShortsWatchSampleAt = null
+    }
+
+    private fun isDetectedYoutubeShorts(decision: DetectionDecision): Boolean {
+        val snapshot = decision.snapshot
+        if (!isDetectionTimingTarget(snapshot.packageName)) {
+            return false
+        }
+        val hasShortsSurface = snapshot.keywordHits.isNotEmpty() ||
+            UiFeature.ACTION_RAIL in snapshot.uiFeatures ||
+            UiFeature.VIDEO_STRUCTURE in snapshot.uiFeatures
+        return hasShortsSurface && snapshot.score > 0
+    }
+
     private fun recordDetectedShortsTime(addedMillis: Long) {
-        val addedSeconds = (addedMillis / 1000L).toInt()
+        val addedSeconds = (addedMillis.coerceIn(0L, MAX_WATCH_TIME_SAMPLE_GAP_MS) / 1000L).toInt()
         if (addedSeconds <= 0) return
         application.container.applicationScope.launch {
             application.container.store.addWatchTime(addedSeconds)
@@ -294,5 +311,6 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
     private companion object {
         const val TAG = "ShortDetectionTiming"
+        const val MAX_WATCH_TIME_SAMPLE_GAP_MS = 10_000L
     }
 }

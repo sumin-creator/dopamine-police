@@ -9,6 +9,7 @@ internal data class DetectionTimingResult(
 
 internal class DetectionTimingGate(
     private val maxCountableGapMillis: Long = MAX_COUNTABLE_GAP_MILLIS,
+    private val repeatAfterTrigger: Boolean = false,
 ) {
     private var currentPackageName: String = ""
     private var accumulatedMillis: Long = 0L
@@ -55,7 +56,11 @@ internal class DetectionTimingGate(
 
         val readyToTrigger = !hasTriggered && accumulatedMillis >= normalizedRequiredMillis
         if (readyToTrigger) {
-            hasTriggered = true
+            if (repeatAfterTrigger) {
+                accumulatedMillis = 0L
+            } else {
+                hasTriggered = true
+            }
         }
         return DetectionTimingResult(
             accumulatedMillis = accumulatedMillis,
