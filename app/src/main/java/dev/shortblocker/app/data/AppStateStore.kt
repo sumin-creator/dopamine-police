@@ -95,17 +95,41 @@ class AppStateStore(
     suspend fun addWatchTime(seconds: Int) {
         context.shortblockerDataStore.updateDataCompat { current ->
             val currentDays = currentEpochDays()
+            val baseHistory = if (current.dailyShortsWatchSeconds > 0L) {
+                mergeShortsWatchHistory(
+                    history = current.shortsWatchHistory,
+                    epochDays = current.lastResetDateEpochDays,
+                    seconds = current.dailyShortsWatchSeconds,
+                )
+            } else {
+                current.shortsWatchHistory
+            }
+            val nextDailySeconds = if (current.lastResetDateEpochDays != currentDays) {
+                seconds.toLong()
+            } else {
+                current.dailyShortsWatchSeconds + seconds
+            }
 
             if (current.lastResetDateEpochDays != currentDays) {
                 // 日付が変わっていれば0にリセットしてから加算
                 current.copy(
-                    dailyShortsWatchSeconds = seconds.toLong(),
-                    lastResetDateEpochDays = currentDays
+                    dailyShortsWatchSeconds = nextDailySeconds,
+                    lastResetDateEpochDays = currentDays,
+                    shortsWatchHistory = mergeShortsWatchHistory(
+                        history = baseHistory,
+                        epochDays = currentDays,
+                        seconds = nextDailySeconds,
+                    ),
                 )
             } else {
                 // 同じ日であれば純粋に秒数を加算
                 current.copy(
-                    dailyShortsWatchSeconds = current.dailyShortsWatchSeconds + seconds
+                    dailyShortsWatchSeconds = nextDailySeconds,
+                    shortsWatchHistory = mergeShortsWatchHistory(
+                        history = baseHistory,
+                        epochDays = currentDays,
+                        seconds = nextDailySeconds,
+                    ),
                 )
             }
         }
@@ -175,10 +199,16 @@ class AppStateStore(
             val filteredSessionLogs = current.sessionLogs.filterNot { it.source == "seed" }
             val currentDays = currentEpochDays()
             val shouldResetDailyWatchTime = current.lastResetDateEpochDays != currentDays
+            val normalizedShortsWatchHistory = normalizeShortsWatchHistory(
+                state = current,
+                currentDays = currentDays,
+                resetDailyWatchTime = shouldResetDailyWatchTime,
+            )
             if (
                 current.settings.threshold == normalizedThreshold &&
                 filteredSessionLogs.size == current.sessionLogs.size &&
-                !shouldResetDailyWatchTime
+                !shouldResetDailyWatchTime &&
+                normalizedShortsWatchHistory == current.shortsWatchHistory
             ) {
                 return@updateDataCompat current
             }
@@ -187,6 +217,7 @@ class AppStateStore(
                 sessionLogs = filteredSessionLogs,
                 dailyShortsWatchSeconds = if (shouldResetDailyWatchTime) 0L else current.dailyShortsWatchSeconds,
                 lastResetDateEpochDays = if (shouldResetDailyWatchTime) currentDays else current.lastResetDateEpochDays,
+                shortsWatchHistory = normalizedShortsWatchHistory,
             )
             updated.copy(
                 liveMonitor = updated.liveMonitor.copy(statusLabel = deriveStatus(updated)),
@@ -195,6 +226,60 @@ class AppStateStore(
     }
 
     private fun currentEpochDays(): Long = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
+
+    private fun normalizeShortsWatchHistory(
+        state: AppState,
+        currentDays: Long,
+        resetDailyWatchTime: Boolean,
+    ): List<DailyShortsWatchTime> {
+        val historyWithLastDailyValue = if (state.dailyShortsWatchSeconds > 0L) {
+            mergeShortsWatchHistory(
+                history = state.shortsWatchHistory,
+                epochDays = state.lastResetDateEpochDays,
+                seconds = state.dailyShortsWatchSeconds,
+            )
+        } else {
+            state.shortsWatchHistory
+        }
+        val historyWithCurrentDay = if (!resetDailyWatchTime && state.dailyShortsWatchSeconds > 0L) {
+            mergeShortsWatchHistory(
+                history = historyWithLastDailyValue,
+                epochDays = currentDays,
+                seconds = state.dailyShortsWatchSeconds,
+            )
+        } else {
+            historyWithLastDailyValue
+        }
+        return pruneShortsWatchHistory(historyWithCurrentDay, currentDays)
+    }
+
+    private fun mergeShortsWatchHistory(
+        history: List<DailyShortsWatchTime>,
+        epochDays: Long,
+        seconds: Long,
+    ): List<DailyShortsWatchTime> {
+        if (seconds <= 0L) {
+            return history
+        }
+        return pruneShortsWatchHistory(
+            history = history
+                .filterNot { it.epochDays == epochDays }
+                .plus(DailyShortsWatchTime(epochDays = epochDays, seconds = seconds))
+                .sortedBy { it.epochDays },
+            currentDays = currentEpochDays(),
+        )
+    }
+
+    private fun pruneShortsWatchHistory(
+        history: List<DailyShortsWatchTime>,
+        currentDays: Long,
+    ): List<DailyShortsWatchTime> {
+        val oldestKeptDay = currentDays - SHORTS_WATCH_HISTORY_DAYS + 1
+        return history
+            .filter { it.seconds > 0L && it.epochDays >= oldestKeptDay && it.epochDays <= currentDays }
+            .distinctBy { it.epochDays }
+            .sortedBy { it.epochDays }
+    }
 
     private fun deriveStatus(
         state: AppState,
@@ -221,5 +306,9 @@ class AppStateStore(
         } else {
             "監視中"
         }
+    }
+
+    private companion object {
+        const val SHORTS_WATCH_HISTORY_DAYS = 30L
     }
 }
