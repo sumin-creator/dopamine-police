@@ -57,3 +57,5 @@ app/build/outputs/apk/debug/app-debug.apk
 ```
 
 gif更新
+
+debugをmainにあげるようのコメント
