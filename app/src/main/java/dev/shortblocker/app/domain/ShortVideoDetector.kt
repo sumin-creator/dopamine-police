@@ -21,6 +21,7 @@ import kotlin.math.min
 data class DetectionDecision(
     val snapshot: DetectionSnapshot,
     val shouldTrigger: Boolean,
+    val triggerCandidate: Boolean = shouldTrigger,
 )
 
 internal data class ScoreableShortsEvidence(
@@ -266,14 +267,18 @@ class ShortVideoDetector {
         )
         val permissionsReady = !requirePermissions || permissions.canIntervene
         val reliableShortVideoEvidence = hasReliableShortVideoEvidence(scenario)
-        val shouldTrigger = settings.alertsEnabled &&
+        val triggerCandidate = settings.alertsEnabled &&
             youtubeRuntimeTarget &&
             permissionsReady &&
             now >= cooldownUntilEpochMillis &&
             reliableShortVideoEvidence &&
             total >= settings.threshold
 
-        return DetectionDecision(snapshot = snapshot, shouldTrigger = shouldTrigger)
+        return DetectionDecision(
+            snapshot = snapshot,
+            shouldTrigger = triggerCandidate,
+            triggerCandidate = triggerCandidate,
+        )
     }
 
     fun processEvent(
