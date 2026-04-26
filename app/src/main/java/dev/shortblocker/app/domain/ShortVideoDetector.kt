@@ -39,6 +39,7 @@ internal enum class ObservedEventType {
     WINDOW_STATE_CHANGED,
     WINDOW_CONTENT_CHANGED,
     VIEW_SCROLLED,
+    PLAYBACK_TICK,
     OTHER,
 }
 
@@ -112,6 +113,7 @@ class ShortVideoDetector {
     private val youtubeActionRailHints = listOf(
         "like",
         "liked",
+        "dislike",
         "いいね",
         "高評価",
         "comment",
@@ -139,6 +141,16 @@ class ShortVideoDetector {
         "short",
         "shorts",
         "reel",
+    )
+    private val youtubeShortsMetadataHints = listOf(
+        "subscribe",
+        "チャンネル登録",
+        "save music",
+        "music",
+        "音楽",
+        "♪",
+        "#",
+        "@",
     )
     private val youtubeStandardVideoHints = listOf(
         "play",
@@ -408,6 +420,13 @@ class ShortVideoDetector {
         val currentKeywordHits = surfaceSignals.keywordHits
         val currentActionHints = surfaceSignals.actionHints
         val shouldResetEvidence = surfaceSignals.normalVideoUiDetected && !surfaceSignals.viewerEvidence
+        val continuingShortsPlaybackCandidate = (
+            mediaPlaybackActive == true ||
+                observedEvent.type == ObservedEventType.PLAYBACK_TICK
+            ) &&
+            !shouldResetEvidence &&
+            baseSession.stage != DetectionStage.IDLE &&
+            baseSession.lastReliableEvidenceAt != 0L
         val keywordState = if (shouldResetEvidence) {
             RetainedHitsState(
                 hits = emptySet(),
@@ -420,6 +439,7 @@ class ShortVideoDetector {
                 lastSeenAt = baseSession.lastKeywordEvidenceAt,
                 now = now,
                 ttlMs = SHORTS_KEYWORD_TTL_MS,
+                keepAlive = continuingShortsPlaybackCandidate,
             )
         }
         val actionHintState = if (shouldResetEvidence) {
@@ -434,6 +454,7 @@ class ShortVideoDetector {
                 lastSeenAt = baseSession.lastActionHintEvidenceAt,
                 now = now,
                 ttlMs = SHORTS_ACTION_HINT_TTL_MS,
+                keepAlive = continuingShortsPlaybackCandidate,
             )
         }
         val keywordHits = keywordState.hits
@@ -448,15 +469,17 @@ class ShortVideoDetector {
             )
         }
         val reliableEvidenceObservedNow = currentKeywordHits.isNotEmpty() && retainedViewerEvidence
+        val continuingShortsPlayback = continuingShortsPlaybackCandidate && retainedViewerEvidence
         val freshReliableEvidence = if (shouldResetEvidence) {
             false
         } else {
             reliableEvidenceObservedNow ||
+                continuingShortsPlayback ||
                 isWithinWindow(baseSession.lastReliableEvidenceAt, now, SHORTS_EVIDENCE_TTL_MS)
         }
         val lastReliableEvidenceAt = when {
             shouldResetEvidence -> 0L
-            reliableEvidenceObservedNow -> now
+            reliableEvidenceObservedNow || continuingShortsPlayback -> now
             else -> baseSession.lastReliableEvidenceAt
         }
         val verticalScroll = isLikelyVerticalScroll(observedEvent)
@@ -480,6 +503,7 @@ class ShortVideoDetector {
             swipeBurst = swipeBurst,
             currentViewerEvidence = currentViewerEvidence,
             continuingShortsScroll = continuingShortsScroll,
+            continuingShortsPlayback = continuingShortsPlayback,
         )
         val stage = resolveDetectionStage(
             scoreableEvidence = scoreableEvidence,
@@ -597,6 +621,7 @@ class ShortVideoDetector {
         swipeBurst: Int,
         currentViewerEvidence: Boolean,
         continuingShortsScroll: Boolean,
+        continuingShortsPlayback: Boolean = false,
     ): ScoreableShortsEvidence {
         val retainedShortsLikeEvidence = keywordHits.isNotEmpty() && actionHints.isNotEmpty()
         val canScoreAsShorts = currentViewerEvidence || continuingShortsScroll || retainedShortsLikeEvidence
@@ -650,7 +675,7 @@ class ShortVideoDetector {
         }
         val viewIdTokens = tokenizeViewIdValue(signals.normalizedViewIds)
         return youtubeActionRailHints.filter { hint ->
-            signals.normalizedText.contains(hint.lowercase(Locale.US)) ||
+            textMatchesHint(signals.normalizedText, hint) ||
                 hint.lowercase(Locale.US) in viewIdTokens
         }.distinct()
     }
@@ -692,6 +717,12 @@ class ShortVideoDetector {
 
         val frameWidth = positionedNodes.maxOf { it.right ?: 0 }.coerceAtLeast(1)
         val frameHeight = positionedNodes.maxOf { it.bottom ?: 0 }.coerceAtLeast(1)
+        val normalVideoUiDetected = detectStandardVideoUi(
+            signals = signals,
+            positionedNodes = positionedNodes,
+            frameWidth = frameWidth,
+            frameHeight = frameHeight,
+        )
         val surfaceKeywordHits = positionedNodes
             .filter { node -> isLikelyShortsHeaderNode(node, frameWidth, frameHeight) }
             .flatMap { node -> detectKeywordsForNode(node) }
@@ -700,20 +731,40 @@ class ShortVideoDetector {
             .filter { node -> isLikelyActionRailNode(node, frameWidth, frameHeight) }
             .flatMap { node -> detectActionHintsForNode(node) }
             .toSet()
-        val viewerEvidence = hasYoutubeShortsViewerEvidence(
+        val bottomTabKeywordHits = positionedNodes
+            .filter { node -> isLikelyBottomShortsTabNode(node, frameWidth, frameHeight) }
+            .flatMap { node -> detectKeywordsForNode(node) }
+            .toSet()
+        val metadataHints = positionedNodes
+            .filter { node -> isLikelyShortsMetadataNode(node, frameWidth, frameHeight) }
+            .flatMap { node -> detectMetadataHintsForNode(node) }
+            .toSet()
+        val headerViewerEvidence = hasYoutubeShortsViewerEvidence(
             keywordHits = surfaceKeywordHits,
             actionHints = surfaceActionHints,
         )
-        return ViewerSurfaceSignals(
-            keywordHits = surfaceKeywordHits,
+        val bottomTabPlayerStructureEvidence = hasYoutubeShortsPlayerStructureEvidence(
+            bottomTabKeywordHits = bottomTabKeywordHits,
             actionHints = surfaceActionHints,
+            metadataHints = metadataHints,
+        )
+        val playbackStructureEvidence = hasYoutubeShortsPlaybackStructureEvidence(
+            actionHints = surfaceActionHints,
+            metadataHints = metadataHints,
+        )
+        val playerStructureEvidence = !normalVideoUiDetected &&
+            (bottomTabPlayerStructureEvidence || playbackStructureEvidence)
+        val viewerEvidence = headerViewerEvidence || playerStructureEvidence
+        val playerStructureKeywordHits = when {
+            bottomTabPlayerStructureEvidence -> bottomTabKeywordHits
+            playbackStructureEvidence -> setOf(STRUCTURAL_SHORTS_PLAYER_HINT)
+            else -> emptySet()
+        }
+        return ViewerSurfaceSignals(
+            keywordHits = surfaceKeywordHits + if (playerStructureEvidence) playerStructureKeywordHits else emptySet(),
+            actionHints = if (viewerEvidence) surfaceActionHints else emptySet(),
             viewerEvidence = viewerEvidence,
-            normalVideoUiDetected = detectStandardVideoUi(
-                signals = signals,
-                positionedNodes = positionedNodes,
-                frameWidth = frameWidth,
-                frameHeight = frameHeight,
-            ),
+            normalVideoUiDetected = normalVideoUiDetected,
         )
     }
 
@@ -721,6 +772,20 @@ class ShortVideoDetector {
         keywordHits: Set<String>,
         actionHints: Set<String>,
     ): Boolean = keywordHits.isNotEmpty() && actionHints.size >= MIN_ACTION_RAIL_HINTS
+
+    private fun hasYoutubeShortsPlayerStructureEvidence(
+        bottomTabKeywordHits: Set<String>,
+        actionHints: Set<String>,
+        metadataHints: Set<String>,
+    ): Boolean = bottomTabKeywordHits.isNotEmpty() &&
+        actionHints.size >= PLAYER_STRUCTURE_MIN_ACTION_HINTS &&
+        metadataHints.size >= MIN_SHORTS_METADATA_HINTS
+
+    private fun hasYoutubeShortsPlaybackStructureEvidence(
+        actionHints: Set<String>,
+        metadataHints: Set<String>,
+    ): Boolean = actionHints.size >= PLAYER_STRUCTURE_MIN_ACTION_HINTS &&
+        metadataHints.size >= MIN_STRONG_SHORTS_METADATA_HINTS
 
     private fun detectKeywordsForNode(node: SignalNode): List<String> {
         val textMatches = youtubeShortsKeywords.filter { keyword ->
@@ -736,8 +801,38 @@ class ShortVideoDetector {
     private fun detectActionHintsForNode(node: SignalNode): List<String> {
         val viewIdTokens = tokenizeViewIdValue(node.normalizedViewId)
         return youtubeActionRailHints.filter { hint ->
-            node.normalizedText.contains(hint.lowercase(Locale.US)) ||
+            textMatchesHint(node.normalizedText, hint) ||
                 hint.lowercase(Locale.US) in viewIdTokens
+        }.distinct()
+    }
+
+    private fun textMatchesHint(normalizedText: String, hint: String): Boolean {
+        if (normalizedText.isBlank()) {
+            return false
+        }
+        val normalizedHint = hint.lowercase(Locale.US)
+        if (!normalizedHint.isAsciiWordHint() || normalizedHint.contains(" ")) {
+            return normalizedText.contains(normalizedHint)
+        }
+
+        val textTokens = tokenizeViewIdValue(normalizedText)
+        return normalizedHint in textTokens || when (normalizedHint) {
+            "like" -> "likes" in textTokens
+            "comment" -> "comments" in textTokens
+            else -> false
+        }
+    }
+
+    private fun String.isAsciiWordHint(): Boolean {
+        return all { char -> char in 'a'..'z' || char in '0'..'9' || char == ' ' }
+    }
+
+    private fun detectMetadataHintsForNode(node: SignalNode): List<String> {
+        val viewIdTokens = tokenizeViewIdValue(node.normalizedViewId)
+        return youtubeShortsMetadataHints.filter { hint ->
+            val normalizedHint = hint.lowercase(Locale.US)
+            node.normalizedText.contains(normalizedHint) ||
+                normalizedHint in viewIdTokens
         }.distinct()
     }
 
@@ -756,6 +851,24 @@ class ShortVideoDetector {
             centerX >= (frameWidth * 0.68).toInt() &&
             centerY >= (frameHeight * 0.18).toInt() &&
             centerY <= (frameHeight * 0.92).toInt()
+    }
+
+    private fun isLikelyBottomShortsTabNode(node: SignalNode, frameWidth: Int, frameHeight: Int): Boolean {
+        val centerX = node.centerX ?: return false
+        val centerY = node.centerY ?: return false
+        return detectKeywordsForNode(node).isNotEmpty() &&
+            centerY >= (frameHeight * 0.88).toInt() &&
+            centerX >= (frameWidth * 0.08).toInt() &&
+            centerX <= (frameWidth * 0.82).toInt()
+    }
+
+    private fun isLikelyShortsMetadataNode(node: SignalNode, frameWidth: Int, frameHeight: Int): Boolean {
+        val centerX = node.centerX ?: return false
+        val centerY = node.centerY ?: return false
+        return detectMetadataHintsForNode(node).isNotEmpty() &&
+            centerX <= (frameWidth * 0.82).toInt() &&
+            centerY >= (frameHeight * 0.60).toInt() &&
+            centerY <= (frameHeight * 0.94).toInt()
     }
 
     private fun detectStandardVideoUi(
@@ -887,7 +1000,14 @@ class ShortVideoDetector {
         lastSeenAt: Long,
         now: Long,
         ttlMs: Long,
+        keepAlive: Boolean = false,
     ): RetainedHitsState {
+        if (keepAlive && retainedHits.isNotEmpty()) {
+            return RetainedHitsState(
+                hits = (retainedHits + currentHits).toSet(),
+                lastSeenAt = now,
+            )
+        }
         val updatedLastSeenAt = if (currentHits.isNotEmpty()) now else lastSeenAt
         val fresh = currentHits.isNotEmpty() || isWithinWindow(lastSeenAt, now, ttlMs)
         return if (fresh) {
@@ -1136,8 +1256,12 @@ class ShortVideoDetector {
         const val FALLBACK_MIN_ACTION_HINTS = 3
         const val REQUIRED_SHORTS_SWIPES = 2
         const val MIN_ACTION_RAIL_HINTS = 2
+        const val PLAYER_STRUCTURE_MIN_ACTION_HINTS = 3
+        const val MIN_SHORTS_METADATA_HINTS = 2
+        const val MIN_STRONG_SHORTS_METADATA_HINTS = 3
         const val MAX_NODE_DEPTH = 5
         const val MAX_NODE_COUNT = 80
+        const val STRUCTURAL_SHORTS_PLAYER_HINT = "ui:shorts-player"
         val VIEW_ID_TOKEN_SPLIT_REGEX = Regex("[^a-z0-9]+")
     }
 

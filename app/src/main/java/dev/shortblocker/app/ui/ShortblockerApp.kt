@@ -1,15 +1,13 @@
-package dev.shortblocker.app.ui
+﻿package dev.shortblocker.app.ui
 
-import android.Manifest
 import android.content.Intent
-import android.os.Build
 import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
@@ -32,31 +30,39 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Analytics
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.PsychologyAlt
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,15 +72,21 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -97,8 +109,8 @@ import java.time.format.TextStyle
 import java.util.Locale
 
 private enum class AppTab(val route: String, val title: String, val icon: @Composable () -> Unit) {
-    DASHBOARD("dashboard", "ホーム", { Icon(Icons.Outlined.Dashboard, contentDescription = null) }),
-    MONITOR("monitor", "設定", { Icon(Icons.Outlined.Tune, contentDescription = null) });
+    DASHBOARD("dashboard", "ホーム", { Icon(Icons.Outlined.Home, contentDescription = null) }),
+    MONITOR("monitor", "設定", { Icon(Icons.Outlined.Settings, contentDescription = null) });
 
     companion object {
         fun fromRoute(route: String?): AppTab =
@@ -169,12 +181,6 @@ fun ShortblockerApp(
     val demoDecision by viewModel.demoDecision.collectAsStateWithLifecycle()
     var currentTab by rememberSaveable { mutableStateOf(AppTab.DASHBOARD) }
 
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) {
-        viewModel.refreshRuntimeState(context)
-    }
-
     LaunchedEffect(requestedTab) {
         currentTab = AppTab.fromRoute(requestedTab)
     }
@@ -216,33 +222,48 @@ fun ShortblockerApp(
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(Color(0xFFFFFCF7))
             .systemBarsPadding(),
+        containerColor = Color(0xFFFFFCF7),
         topBar = {
             CenterAlignedTopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFFFFFCF7),
+                    titleContentColor = Color(0xFF2D2018),
+                ),
                 title = {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.logo),
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp),
-                        )
-                        Text("ドーパミン警察", fontWeight = FontWeight.ExtraBold)
-                    }
+                    DopaminePoliceTitle()
+                },
+                modifier = Modifier.drawBehind {
+                    drawLine(
+                        color = Color(0xFFE4DED7),
+                        start = Offset(0f, size.height),
+                        end = Offset(size.width, size.height),
+                        strokeWidth = 1.dp.toPx(),
+                    )
                 },
             )
         },
         bottomBar = {
-            NavigationBar(modifier = Modifier.navigationBarsPadding()) {
+            NavigationBar(
+                modifier = Modifier.navigationBarsPadding(),
+                containerColor = Color(0xFFFFFBF6),
+                tonalElevation = 0.dp,
+            ) {
                 for (tab in AppTab.entries) {
+                    val selectedAccent = if (tab == AppTab.DASHBOARD) Color(0xFFFF7A00) else Color(0xFF8E78D9)
                     NavigationBarItem(
                         selected = currentTab == tab,
                         onClick = { currentTab = tab },
                         icon = tab.icon,
-                        label = { Text(tab.title) },
+                        label = { Text(tab.title, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = selectedAccent,
+                            selectedTextColor = selectedAccent,
+                            indicatorColor = selectedAccent.copy(alpha = 0.16f),
+                            unselectedIconColor = Color(0xFF6B6660),
+                            unselectedTextColor = Color(0xFF6B6660),
+                        ),
                     )
                 }
             }
@@ -252,18 +273,12 @@ fun ShortblockerApp(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
+            color = Color(0xFFFFFCF7),
         ) {
             when (currentTab) {
                 AppTab.DASHBOARD -> DashboardScreen(state = state)
                 AppTab.MONITOR -> MonitorScreen(
                     state = state,
-                    onRequestNotificationPermission = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else {
-                            viewModel.refreshRuntimeState(context)
-                        }
-                    },
                     onOpenAccessibilitySettings = {
                         context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     },
@@ -289,49 +304,110 @@ fun ShortblockerApp(
 }
 
 @Composable
+private fun DopaminePoliceTitle() {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.logo),
+            contentDescription = null,
+            modifier = Modifier.size(32.dp),
+        )
+        Text(
+            "ドーパミン警察",
+            color = Color(0xFF2D2018),
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 25.sp,
+        )
+    }
+}
+
+@Composable
 private fun DashboardScreen(state: AppState) {
     val todayMinutes = todayUsageMinutes(state.sessionLogs)
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFFFFCF7)),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        item { DashboardTodayCard(todayMinutes = todayMinutes) }
+        item { HomeArtCard() }
         item {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                DashboardMetricCard(
+                    title = "1日の目標",
+                    value = "${state.settings.dailyGoalMinutes}分",
+                    icon = Icons.Outlined.TrackChanges,
+                    accent = Color(0xFFE9547A),
+                    soft = Color(0xFFFFF1F5),
+                    modifier = Modifier.weight(1f),
+                )
+                DashboardMetricCard(
+                    title = "検知タイミング",
+                    value = "${state.settings.cooldownMinutes}分",
+                    icon = Icons.Outlined.AccessTime,
+                    accent = Color(0xFF7764C9),
+                    soft = Color(0xFFF3F0FF),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        item { WeeklyUsageCard(sessionLogs = state.sessionLogs) }
+    }
+}
+
+@Composable
+private fun DashboardTodayCard(todayMinutes: Int) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(154.dp)
+                .background(Brush.horizontalGradient(listOf(Color.White, Color(0xFFFFF7EA), Color(0xFFFFFBF4))))
+                .border(1.dp, Color(0xFFFFCA7B), RoundedCornerShape(24.dp))
+                .padding(horizontal = 22.dp, vertical = 18.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color(0xFFFF8A00))
+                        .padding(horizontal = 18.dp, vertical = 8.dp),
                 ) {
-                    HomeTile(
-                        title = "今日の視聴時間",
-                        value = formatMinutesAsHourMinute(todayMinutes),
-                        colorA = Color.White,
-                        colorB = Color(0xFFFFF4E8),
-                    )
-                    HomeArtCard()
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HomeTile(
-                            title = "1日の目標",
-                            value = formatMinutesAsHourMinute(state.settings.dailyGoalMinutes),
-                            modifier = Modifier.weight(1f),
-                            colorA = Color.White,
-                            colorB = Color(0xFFFFF4E8),
-                        )
-                        HomeTile(
-                            title = "検知タイミング",
-                            value = formatMinutesAsHourMinute(state.settings.cooldownMinutes),
-                            modifier = Modifier.weight(1f),
-                            titleFontSize = 15.sp,
-                            colorA = Color.White,
-                            colorB = Color(0xFFFFF4E8),
-                        )
-                    }
-                    WeeklyUsageCard(sessionLogs = state.sessionLogs)
+                    Text("今日の視聴時間", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
                 }
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        todayMinutes.toString(),
+                        color = Color(0xFFFF8800),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 64.sp,
+                    )
+                    Text(
+                        "分",
+                        modifier = Modifier.padding(bottom = 3.dp),
+                        color = Color(0xFFFF8800),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 50.sp,
+                    )
+                }
+            }
+            Canvas(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(104.dp),
+            ) {
+                drawCircle(color = Color(0xFFFFE6B8), radius = size.minDimension / 2f, style = Stroke(width = 10f))
+                drawLine(Color(0xFFFFB44E), Offset(size.width / 2f, size.height / 2f), Offset(size.width / 2f, size.height * 0.28f), strokeWidth = 9f)
+                drawLine(Color(0xFFFFB44E), Offset(size.width / 2f, size.height / 2f), Offset(size.width * 0.67f, size.height / 2f), strokeWidth = 9f)
+                drawCircle(color = Color(0xFFFFB44E), radius = 6f, center = Offset(size.width / 2f, size.height / 2f))
             }
         }
     }
@@ -339,132 +415,152 @@ private fun DashboardScreen(state: AppState) {
 
 @Composable
 private fun HomeArtCard() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.horizontalGradient(
-                    listOf(Color(0xFFFFD7EA), Color(0xFFD9F7F2), Color(0xFFE5E9FF)),
-                ),
-            )
-            .padding(14.dp),
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .border(width = 2.dp, color = Color.White.copy(alpha = 0.75f), shape = RoundedCornerShape(16.dp))
-                .background(Color(0x66FFFFFF))
-                .padding(10.dp),
+                .height(224.dp)
+                .background(Brush.linearGradient(listOf(Color(0xFFFFF9FB), Color(0xFFF5FFFC), Color(0xFFF6F7FF))))
+                .border(1.dp, Color(0xFFEDE8E0), RoundedCornerShape(24.dp))
+                .padding(16.dp),
         ) {
+            DashboardDonutChart(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 18.dp, start = 2.dp)
+                    .size(104.dp),
+            )
+            DashboardMiniBars(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 24.dp, end = 12.dp)
+                    .size(width = 142.dp, height = 86.dp),
+            )
+            DashboardLineSparkline(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 4.dp, bottom = 8.dp)
+                    .size(width = 180.dp, height = 58.dp),
+            )
+            Image(
+                painter = painterResource(id = R.drawable.hand),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .size(width = 210.dp, height = 172.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DashboardDonutChart(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val stroke = Stroke(width = 17f)
+        drawArc(Color(0xFFF48AA5), -92f, 145f, false, style = stroke)
+        drawArc(Color(0xFF9EA7F4), 62f, 92f, false, style = stroke)
+        drawArc(Color(0xFF82D5D0), 165f, 74f, false, style = stroke)
+        drawArc(Color(0xFFF8D18C), 250f, 64f, false, style = stroke)
+        drawCircle(Color.White.copy(alpha = 0.94f), radius = size.minDimension * 0.28f)
+    }
+}
+
+@Composable
+private fun DashboardMiniBars(modifier: Modifier = Modifier) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
+        listOf(44.dp to Color(0xFFA6DFE5), 70.dp to Color(0xFFC6C1FA), 56.dp to Color(0xFFFFCE83)).forEach { (height, color) ->
+            Box(
+                modifier = Modifier
+                    .width(28.dp)
+                    .height(height)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(color),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DashboardLineSparkline(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val points = listOf(
+            Offset(0f, size.height * 0.82f),
+            Offset(size.width * 0.23f, size.height * 0.62f),
+            Offset(size.width * 0.43f, size.height * 0.72f),
+            Offset(size.width * 0.68f, size.height * 0.37f),
+            Offset(size.width, size.height * 0.2f),
+        )
+        for (i in 0 until points.lastIndex) {
+            drawLine(Color(0xFFB5BCF4), points[i], points[i + 1], strokeWidth = 7f)
+            drawLine(Color.White.copy(alpha = 0.9f), points[i], points[i + 1], strokeWidth = 3f)
+        }
+        drawCircle(Color(0xFF8FA0F5), radius = 8f, center = points.last())
+    }
+}
+
+@Composable
+private fun DashboardMetricCard(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    accent: Color,
+    soft: Color,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.height(104.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.linearGradient(listOf(Color.White, soft)))
+                .border(1.dp, accent.copy(alpha = 0.28f), RoundedCornerShape(20.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Text(title, color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, maxLines = 1)
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(132.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0x66FFFFFF))
-                        .padding(10.dp),
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(accent.copy(alpha = 0.88f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Canvas(modifier = Modifier.size(92.dp)) {
-                        val stroke = Stroke(width = 16f)
-                        drawArc(
-                            color = Color(0xFFEF6C9A),
-                            startAngle = -90f,
-                            sweepAngle = 210f,
-                            useCenter = false,
-                            style = stroke,
-                        )
-                        drawArc(
-                            color = Color(0xFF31A996),
-                            startAngle = 120f,
-                            sweepAngle = 95f,
-                            useCenter = false,
-                            style = stroke,
-                        )
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.9f),
-                            radius = 26f,
-                        )
-                    }
+                    Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
                 }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(132.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0x66FFFFFF))
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.SpaceBetween,
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(28.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFFFF8FB9)),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF8FD8C9)),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(62.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF9CAFFF)),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFFFFC37D)),
-                        )
-                    }
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(36.dp),
-                    ) {
-                        val color = Color(0xCCFFFFFF)
-                        val points = listOf(
-                            Offset(0f, size.height * 0.8f),
-                            Offset(size.width * 0.25f, size.height * 0.45f),
-                            Offset(size.width * 0.5f, size.height * 0.6f),
-                            Offset(size.width * 0.75f, size.height * 0.25f),
-                            Offset(size.width, size.height * 0.5f),
-                        )
-                        for (i in 0 until points.lastIndex) {
-                            drawLine(
-                                color = color,
-                                start = points[i],
-                                end = points[i + 1],
-                                strokeWidth = 6f,
-                            )
-                        }
-                    }
+                    Text(
+                        text = value.removeSuffix("分"),
+                        color = accent,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 34.sp,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "分",
+                        modifier = Modifier.padding(bottom = 1.dp),
+                        color = accent,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 30.sp,
+                        maxLines = 1,
+                    )
                 }
             }
-            Image(
-                painter = painterResource(id = R.drawable.hand),
-                contentDescription = "hand",
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .offset(y = 26.dp)
-                    .size(140.dp),
-            )
         }
     }
 }
@@ -476,35 +572,44 @@ private fun WeeklyUsageCard(sessionLogs: List<SessionLog>) {
     val axisMax = roundUpAxisMinutes(maxMinutes)
     val axisStep = (axisMax / 4).coerceAtLeast(15)
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFFFCF7))))
+                .border(1.dp, Color(0xFFFFE1B6), RoundedCornerShape(22.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("一週間の使用時間", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.Black)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFFF0D5)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Outlined.BarChart, contentDescription = null, tint = Color(0xFFFF9800))
+                }
+                Text("一週間の使用時間", fontWeight = FontWeight.ExtraBold, color = Color(0xFF2D2520), fontSize = 20.sp)
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 170.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .height(180.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Column(
-                    modifier = Modifier.height(140.dp),
+                    modifier = Modifier.height(146.dp),
                     verticalArrangement = Arrangement.SpaceBetween,
                     horizontalAlignment = Alignment.End,
                 ) {
                     for (step in 4 downTo 0) {
-                        Text(
-                            formatMinutesAsHourMinute(axisStep * step),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.Black,
-                            fontSize = 13.sp,
-                        )
+                        Text("${axisStep * step}分", color = Color(0xFF55504B), fontSize = 12.sp, maxLines = 1)
                     }
                 }
                 weekly.forEach { (label, minutes) ->
@@ -513,22 +618,15 @@ private fun WeeklyUsageCard(sessionLogs: List<SessionLog>) {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Bottom,
                     ) {
+                        Text("${minutes}分", color = Color(0xFF3A332D), fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height((140f * (minutes.toFloat() / axisMax)).dp.coerceAtLeast(4.dp))
-                                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                                .background(Color(0xFFFF8C00)),
+                                .height((128f * (minutes.toFloat() / axisMax)).dp.coerceAtLeast(5.dp))
+                                .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp))
+                                .background(Brush.verticalGradient(listOf(Color(0xFFFF9F1C), Color(0xFFFF7A00)))),
                         )
-                        Text(
-                            formatMinutesAsHourMinute(minutes),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.Black,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                        )
-                        Text(label, style = MaterialTheme.typography.labelMedium, color = Color.Black, fontSize = 12.sp)
+                        Text(label, color = Color(0xFF3A332D), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }
@@ -736,7 +834,6 @@ private fun CharacterVisual(modifier: Modifier = Modifier) {
 @Composable
 private fun MonitorScreen(
     state: AppState,
-    onRequestNotificationPermission: () -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
     onOpenUsageSettings: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
@@ -744,57 +841,149 @@ private fun MonitorScreen(
     onDetectionMinutesChange: (Int) -> Unit,
     onDailyGoalChange: (Int) -> Unit,
 ) {
+    val goalMinutes = state.settings.dailyGoalMinutes
+    val detectionMinutes = state.settings.cooldownMinutes
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFFFFCF7)),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            SectionCard(
-                title = "見守り設定",
-                subtitle = "補助信号は任意",
+            SettingsSectionCard(
+                title = "時間設定",
+                icon = Icons.Outlined.AccessTime,
+                accent = Color(0xFFFF8A00),
+                soft = Color(0xFFFFF7ED),
+                border = Color(0xFFFFC37D),
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusBadge("目標 ${state.settings.dailyGoalMinutes}分", Color(0xFFEF6C9A))
-                    StatusBadge("検知 ${state.settings.cooldownMinutes}分", Color(0xFF30A58F))
-                }
-            }
-        }
-        item {
-            SectionCard(title = "時間の設定", subtitle = "シンプル設定") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SettingSlider(
-                        label = "検知開始までの時間",
-                        value = state.settings.cooldownMinutes.toFloat(),
-                        valueRange = 1f..30f,
-                        steps = 28,
-                        display = "${state.settings.cooldownMinutes} min",
-                        onValueChange = { onDetectionMinutesChange(it.toInt()) },
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TimeSettingTile(
+                        label = "1日の目標",
+                        minutes = goalMinutes,
+                        minMinutes = 10,
+                        maxMinutes = 180,
+                        onCommitMinutes = onDailyGoalChange,
+                        modifier = Modifier.weight(1f),
                     )
-                    SettingSlider(
-                        label = "1日の目標時間",
-                        value = state.settings.dailyGoalMinutes.toFloat(),
-                        valueRange = 10f..180f,
-                        steps = 16,
-                        display = "${state.settings.dailyGoalMinutes} min",
-                        onValueChange = { onDailyGoalChange(it.toInt()) },
+                    TimeSettingTile(
+                        label = "検知タイミング",
+                        minutes = detectionMinutes,
+                        minMinutes = 1,
+                        maxMinutes = 30,
+                        onCommitMinutes = onDetectionMinutesChange,
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
         }
         item {
-            SectionCard(title = "権限", subtitle = "時間設定の下で確認") {
+            SettingsSectionCard(
+                title = "権限",
+                icon = Icons.Outlined.Shield,
+                accent = Color(0xFF8E78D9),
+                soft = Color(0xFFFBF8FF),
+                border = Color(0xFFD8C9FF),
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PermissionRow("Accessibility Service", state.permissions.accessibility, onOpenAccessibilitySettings)
-                    PermissionRow("Usage Stats", state.permissions.usageStats, onOpenUsageSettings)
-                    PermissionRow("MediaSession Listener", state.permissions.mediaSessionListener, onOpenMediaSessionSettings)
-                    PermissionRow("Notifications", state.permissions.notifications, onOpenNotificationSettings)
-                    OutlinedButton(onClick = onRequestNotificationPermission) {
-                        Text("通知権限を再リクエスト")
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PermissionGridTile(
+                            title = "操作補助",
+                            granted = state.permissions.accessibility,
+                            icon = Icons.Outlined.PsychologyAlt,
+                            onClick = onOpenAccessibilitySettings,
+                            modifier = Modifier.weight(1f),
+                        )
+                        PermissionGridTile(
+                            title = "使用状況",
+                            granted = state.permissions.usageStats,
+                            icon = Icons.Outlined.Analytics,
+                            onClick = onOpenUsageSettings,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PermissionGridTile(
+                            title = "メディア",
+                            granted = state.permissions.mediaSessionListener,
+                            icon = Icons.Outlined.Dashboard,
+                            onClick = onOpenMediaSessionSettings,
+                            modifier = Modifier.weight(1f),
+                        )
+                        PermissionGridTile(
+                            title = "通知",
+                            granted = state.permissions.notifications,
+                            icon = Icons.Outlined.NotificationsActive,
+                            onClick = onOpenNotificationSettings,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsSectionCard(
+    title: String,
+    icon: ImageVector,
+    accent: Color,
+    soft: Color,
+    border: Color,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.White, soft)))
+                .border(1.dp, border, RoundedCornerShape(20.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (icon == Icons.Outlined.Shield) {
+                    PoliceShieldMark(
+                        modifier = Modifier.size(30.dp),
+                        accent = accent,
+                    )
+                } else {
+                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(28.dp))
+                }
+                Text(title, color = Color(0xFF2D2520), fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
+            }
+            content()
+        }
+    }
+}
+
+@Composable
+private fun PoliceShieldMark(modifier: Modifier = Modifier, accent: Color) {
+    Canvas(modifier = modifier) {
+        val width = size.width
+        val height = size.height
+        val shieldPath = androidx.compose.ui.graphics.Path().apply {
+            moveTo(width * 0.5f, height * 0.06f)
+            lineTo(width * 0.88f, height * 0.2f)
+            lineTo(width * 0.78f, height * 0.67f)
+            quadraticTo(width * 0.66f, height * 0.86f, width * 0.5f, height * 0.96f)
+            quadraticTo(width * 0.34f, height * 0.86f, width * 0.22f, height * 0.67f)
+            lineTo(width * 0.12f, height * 0.2f)
+            close()
+        }
+        drawPath(shieldPath, color = accent.copy(alpha = 0.18f))
+        drawPath(shieldPath, color = accent, style = Stroke(width = 3f))
+        drawCircle(color = accent.copy(alpha = 0.9f), radius = width * 0.12f, center = Offset(width * 0.5f, height * 0.36f))
+        drawLine(accent, Offset(width * 0.28f, height * 0.58f), Offset(width * 0.72f, height * 0.58f), strokeWidth = 3f)
+        drawLine(accent, Offset(width * 0.36f, height * 0.72f), Offset(width * 0.64f, height * 0.72f), strokeWidth = 3f)
+        drawCircle(color = Color.White.copy(alpha = 0.95f), radius = width * 0.035f, center = Offset(width * 0.34f, height * 0.34f))
+        drawCircle(color = Color.White.copy(alpha = 0.95f), radius = width * 0.035f, center = Offset(width * 0.66f, height * 0.34f))
     }
 }
 
@@ -1059,31 +1248,136 @@ private fun PermissionRow(title: String, granted: Boolean, onClick: () -> Unit) 
 }
 
 @Composable
-private fun SettingSlider(
+private fun TimeSettingTile(
     label: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    steps: Int,
-    display: String,
-    onValueChange: (Float) -> Unit,
+    minutes: Int,
+    minMinutes: Int,
+    maxMinutes: Int,
+    onCommitMinutes: (Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    var input by remember(minutes) { mutableStateOf(minutes.toString()) }
+    fun commitInput() {
+        val parsed = input.toIntOrNull() ?: return
+        val clamped = parsed.coerceIn(minMinutes, maxMinutes)
+        if (clamped != minutes) onCommitMinutes(clamped)
+        input = clamped.toString()
+    }
+
+    Card(
+        modifier = modifier
+            .heightIn(min = 164.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, fontWeight = FontWeight.SemiBold)
-            Text(display, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFFFCF8))))
+                .border(1.dp, Color(0xFFFFB15E), RoundedCornerShape(16.dp))
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(label, fontWeight = FontWeight.ExtraBold, color = Color(0xFF2D2520), fontSize = 16.sp)
+            OutlinedTextField(
+                value = input,
+                onValueChange = { next ->
+                    if (next.all { it.isDigit() }) {
+                        input = next
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                textStyle = MaterialTheme.typography.headlineSmall.copy(
+                    color = Color(0xFFFF8A00),
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center,
+                ),
+                suffix = { Text("分", color = Color(0xFFFF8A00), fontWeight = FontWeight.ExtraBold, fontSize = 22.sp) },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { commitInput() },
+                ),
+            )
+            Button(
+                onClick = { commitInput() },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF8A00), contentColor = Color.White),
+                shape = CircleShape,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp),
+            ) {
+                Icon(Icons.Outlined.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("設定", fontWeight = FontWeight.ExtraBold)
+            }
         }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = valueRange,
-            steps = steps,
-        )
+    }
+}
+
+@Composable
+private fun PermissionGridTile(
+    title: String,
+    granted: Boolean,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.height(96.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFCFAFF))))
+                .border(1.dp, Color(0xFFD8C9FF), RoundedCornerShape(16.dp))
+                .padding(horizontal = 6.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFEDE5FF)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = Color(0xFF8E78D9), modifier = Modifier.size(21.dp))
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(title, fontWeight = FontWeight.ExtraBold, color = Color(0xFF2D2520), maxLines = 1, fontSize = 15.sp)
+                Text(
+                    text = if (granted) "設定済み" else "未設定",
+                    color = if (granted) Color(0xFF23A26D) else Color(0xFF776E88),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    fontSize = 13.sp,
+                )
+                OutlinedButton(
+                    onClick = onClick,
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .height(32.dp)
+                        .width(76.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text("開く", fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                }
+            }
+        }
     }
 }
 
@@ -1094,19 +1388,23 @@ private fun SectionCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFFF7ED))))
+                .border(1.dp, Color(0xFFFFE2B8), RoundedCornerShape(20.dp))
                 .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             content = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF2B1E17))
+                    if (subtitle.isNotBlank()) {
+                        Text(subtitle, color = Color(0xFF8D7B69))
+                    }
                 }
                 content()
             },

@@ -173,11 +173,13 @@ class AppStateStore(
 
     private suspend fun normalizePersistedSettings() {
         context.shortblockerDataStore.updateDataCompat { current ->
-            if (current.settings.threshold == normalizedThreshold) {
+            val filteredLogs = current.sessionLogs.filterNot { it.source == "seed" }
+            if (current.settings.threshold == normalizedThreshold && filteredLogs.size == current.sessionLogs.size) {
                 return@updateDataCompat current
             }
             val updated = current.copy(
                 settings = current.settings.copy(threshold = normalizedThreshold),
+                sessionLogs = filteredLogs,
             )
             updated.copy(
                 liveMonitor = updated.liveMonitor.copy(statusLabel = deriveStatus(updated)),

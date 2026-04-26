@@ -4,6 +4,8 @@ import android.accessibilityservice.AccessibilityService
 import android.media.session.PlaybackState
 import android.view.accessibility.AccessibilityEvent
 import dev.shortblocker.app.ShortblockerApplication
+import dev.shortblocker.app.data.DetectionSnapshot
+import dev.shortblocker.app.data.PermissionSnapshot
 import dev.shortblocker.app.data.ServiceTarget
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -11,7 +13,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class ShortVideoAccessibilityService : AccessibilityService() {
-    private val application by lazy { applicationContext as ShortblockerApplication }
+    private val shortblockerApplication by lazy { applicationContext as ShortblockerApplication }
+    private var playbackTickJob: Job? = null
 
     // 監視タイマー用のJobを保持
     private var monitorJob: Job? = null
@@ -31,7 +34,7 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             return
         }
 
-        val store = application.container.store
+        val store = shortblockerApplication.container.store
         val state = store.state.value
 
         // 既存のイベント駆動の処理
