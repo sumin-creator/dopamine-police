@@ -324,7 +324,7 @@ data class AppState(
     val cooldownUntilEpochMillis: Long = 0L,
     val foregroundAppName: String = "未取得",
     val foregroundPackageName: String = "",
-    val sessionLogs: List<SessionLog> = seedLogs(),
+    val sessionLogs: List<SessionLog> = emptyList(),
 ) {
     fun dailyStats(): DailyStats {
         val warningCount = sessionLogs.count { it.triggeredWarning }

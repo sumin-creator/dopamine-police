@@ -1,4 +1,4 @@
-package dev.shortblocker.app.ui
+﻿package dev.shortblocker.app.ui
 
 import android.content.Intent
 import android.provider.Settings
@@ -31,9 +31,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Analytics
+import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.PsychologyAlt
+import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -48,12 +52,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,9 +69,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -97,7 +105,7 @@ import java.time.format.TextStyle
 import java.util.Locale
 
 private enum class AppTab(val route: String, val title: String, val icon: @Composable () -> Unit) {
-    DASHBOARD("dashboard", "ホーム", { Icon(Icons.Outlined.Dashboard, contentDescription = null) }),
+    DASHBOARD("dashboard", "ホーム", { Icon(Icons.Outlined.Home, contentDescription = null) }),
     MONITOR("monitor", "設定", { Icon(Icons.Outlined.Tune, contentDescription = null) });
 
     companion object {
@@ -210,10 +218,15 @@ fun ShortblockerApp(
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(Color(0xFFFFFCF7))
             .systemBarsPadding(),
+        containerColor = Color(0xFFFFFCF7),
         topBar = {
             CenterAlignedTopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFFFFFCF7),
+                    titleContentColor = Color(0xFF2D2018),
+                ),
                 title = {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -230,13 +243,24 @@ fun ShortblockerApp(
             )
         },
         bottomBar = {
-            NavigationBar(modifier = Modifier.navigationBarsPadding()) {
+            NavigationBar(
+                modifier = Modifier.navigationBarsPadding(),
+                containerColor = Color.White,
+                tonalElevation = 0.dp,
+            ) {
                 for (tab in AppTab.entries) {
                     NavigationBarItem(
                         selected = currentTab == tab,
                         onClick = { currentTab = tab },
                         icon = tab.icon,
                         label = { Text(tab.title) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFFFF7900),
+                            selectedTextColor = Color(0xFFFF7900),
+                            indicatorColor = Color(0xFFFFEDD9),
+                            unselectedIconColor = Color(0xFF6B6660),
+                            unselectedTextColor = Color(0xFF6B6660),
+                        ),
                     )
                 }
             }
@@ -246,6 +270,7 @@ fun ShortblockerApp(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
+            color = Color(0xFFFFFCF7),
         ) {
             when (currentTab) {
                 AppTab.DASHBOARD -> DashboardScreen(state = state)
@@ -279,46 +304,76 @@ fun ShortblockerApp(
 private fun DashboardScreen(state: AppState) {
     val todayMinutes = todayUsageMinutes(state.sessionLogs)
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFFFFCF7)),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        item { DashboardTodayCard(todayMinutes = todayMinutes) }
+        item { HomeArtCard() }
         item {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                DashboardMetricCard(
+                    title = "1日の目標",
+                    value = "${state.settings.dailyGoalMinutes}分",
+                    icon = Icons.Outlined.TrackChanges,
+                    accent = Color(0xFFE9547A),
+                    soft = Color(0xFFFFF1F5),
+                    modifier = Modifier.weight(1f),
+                )
+                DashboardMetricCard(
+                    title = "検知タイミング",
+                    value = "${state.settings.cooldownMinutes}分",
+                    icon = Icons.Outlined.AccessTime,
+                    accent = Color(0xFF7764C9),
+                    soft = Color(0xFFF3F0FF),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        item { WeeklyUsageCard(sessionLogs = state.sessionLogs) }
+    }
+}
+
+@Composable
+private fun DashboardTodayCard(todayMinutes: Int) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(154.dp)
+                .background(Brush.horizontalGradient(listOf(Color.White, Color(0xFFFFF7EA), Color(0xFFFFFBF4))))
+                .border(1.dp, Color(0xFFFFCA7B), RoundedCornerShape(24.dp))
+                .padding(horizontal = 22.dp, vertical = 18.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color(0xFFFF8A00))
+                        .padding(horizontal = 18.dp, vertical = 8.dp),
                 ) {
-                    HomeTile(
-                        title = "今日の視聴時間",
-                        value = formatMinutesAsHourMinute(todayMinutes),
-                        colorA = Color.White,
-                        colorB = Color(0xFFFFF4E8),
-                    )
-                    HomeArtCard()
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HomeTile(
-                            title = "1日の目標",
-                            value = "${state.settings.dailyGoalMinutes}分",
-                            modifier = Modifier.weight(1f),
-                            colorA = Color.White,
-                            colorB = Color(0xFFFFF4E8),
-                        )
-                        HomeTile(
-                            title = "検知タイミング",
-                            value = "${state.settings.cooldownMinutes}分",
-                            modifier = Modifier.weight(1f),
-                            titleFontSize = 15.sp,
-                            colorA = Color.White,
-                            colorB = Color(0xFFFFF4E8),
-                        )
-                    }
-                    WeeklyUsageCard(sessionLogs = state.sessionLogs)
+                    Text("今日の視聴時間", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
                 }
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(todayMinutes.toString(), color = Color(0xFFFF8800), fontWeight = FontWeight.ExtraBold, fontSize = 64.sp)
+                    Text("分", modifier = Modifier.padding(bottom = 8.dp), color = Color(0xFFFF8800), fontWeight = FontWeight.ExtraBold, fontSize = 36.sp)
+                }
+            }
+            Canvas(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(104.dp),
+            ) {
+                drawCircle(color = Color(0xFFFFE6B8), radius = size.minDimension / 2f, style = Stroke(width = 10f))
+                drawLine(Color(0xFFFFB44E), Offset(size.width / 2f, size.height / 2f), Offset(size.width / 2f, size.height * 0.28f), strokeWidth = 9f)
+                drawLine(Color(0xFFFFB44E), Offset(size.width / 2f, size.height / 2f), Offset(size.width * 0.67f, size.height / 2f), strokeWidth = 9f)
+                drawCircle(color = Color(0xFFFFB44E), radius = 6f, center = Offset(size.width / 2f, size.height / 2f))
             }
         }
     }
@@ -326,132 +381,152 @@ private fun DashboardScreen(state: AppState) {
 
 @Composable
 private fun HomeArtCard() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.horizontalGradient(
-                    listOf(Color(0xFFFFD7EA), Color(0xFFD9F7F2), Color(0xFFE5E9FF)),
-                ),
-            )
-            .padding(14.dp),
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .border(width = 2.dp, color = Color.White.copy(alpha = 0.75f), shape = RoundedCornerShape(16.dp))
-                .background(Color(0x66FFFFFF))
-                .padding(10.dp),
+                .height(224.dp)
+                .background(Brush.linearGradient(listOf(Color(0xFFFFF9FB), Color(0xFFF5FFFC), Color(0xFFF6F7FF))))
+                .border(1.dp, Color(0xFFEDE8E0), RoundedCornerShape(24.dp))
+                .padding(16.dp),
         ) {
+            DashboardDonutChart(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 18.dp, start = 2.dp)
+                    .size(104.dp),
+            )
+            DashboardMiniBars(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 24.dp, end = 12.dp)
+                    .size(width = 142.dp, height = 86.dp),
+            )
+            DashboardLineSparkline(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 4.dp, bottom = 8.dp)
+                    .size(width = 180.dp, height = 58.dp),
+            )
+            Image(
+                painter = painterResource(id = R.drawable.hand),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .size(width = 210.dp, height = 172.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DashboardDonutChart(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val stroke = Stroke(width = 17f)
+        drawArc(Color(0xFFF48AA5), -92f, 145f, false, style = stroke)
+        drawArc(Color(0xFF9EA7F4), 62f, 92f, false, style = stroke)
+        drawArc(Color(0xFF82D5D0), 165f, 74f, false, style = stroke)
+        drawArc(Color(0xFFF8D18C), 250f, 64f, false, style = stroke)
+        drawCircle(Color.White.copy(alpha = 0.94f), radius = size.minDimension * 0.28f)
+    }
+}
+
+@Composable
+private fun DashboardMiniBars(modifier: Modifier = Modifier) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
+        listOf(44.dp to Color(0xFFA6DFE5), 70.dp to Color(0xFFC6C1FA), 56.dp to Color(0xFFFFCE83)).forEach { (height, color) ->
+            Box(
+                modifier = Modifier
+                    .width(28.dp)
+                    .height(height)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(color),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DashboardLineSparkline(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val points = listOf(
+            Offset(0f, size.height * 0.82f),
+            Offset(size.width * 0.23f, size.height * 0.62f),
+            Offset(size.width * 0.43f, size.height * 0.72f),
+            Offset(size.width * 0.68f, size.height * 0.37f),
+            Offset(size.width, size.height * 0.2f),
+        )
+        for (i in 0 until points.lastIndex) {
+            drawLine(Color(0xFFB5BCF4), points[i], points[i + 1], strokeWidth = 7f)
+            drawLine(Color.White.copy(alpha = 0.9f), points[i], points[i + 1], strokeWidth = 3f)
+        }
+        drawCircle(Color(0xFF8FA0F5), radius = 8f, center = points.last())
+    }
+}
+
+@Composable
+private fun DashboardMetricCard(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    accent: Color,
+    soft: Color,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.height(104.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.linearGradient(listOf(Color.White, soft)))
+                .border(1.dp, accent.copy(alpha = 0.28f), RoundedCornerShape(20.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Text(title, color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, maxLines = 1)
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(132.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0x66FFFFFF))
-                        .padding(10.dp),
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(accent.copy(alpha = 0.88f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Canvas(modifier = Modifier.size(92.dp)) {
-                        val stroke = Stroke(width = 16f)
-                        drawArc(
-                            color = Color(0xFFEF6C9A),
-                            startAngle = -90f,
-                            sweepAngle = 210f,
-                            useCenter = false,
-                            style = stroke,
-                        )
-                        drawArc(
-                            color = Color(0xFF31A996),
-                            startAngle = 120f,
-                            sweepAngle = 95f,
-                            useCenter = false,
-                            style = stroke,
-                        )
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.9f),
-                            radius = 26f,
-                        )
-                    }
+                    Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
                 }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(132.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0x66FFFFFF))
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.SpaceBetween,
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(28.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFFFF8FB9)),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF8FD8C9)),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(62.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF9CAFFF)),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFFFFC37D)),
-                        )
-                    }
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(36.dp),
-                    ) {
-                        val color = Color(0xCCFFFFFF)
-                        val points = listOf(
-                            Offset(0f, size.height * 0.8f),
-                            Offset(size.width * 0.25f, size.height * 0.45f),
-                            Offset(size.width * 0.5f, size.height * 0.6f),
-                            Offset(size.width * 0.75f, size.height * 0.25f),
-                            Offset(size.width, size.height * 0.5f),
-                        )
-                        for (i in 0 until points.lastIndex) {
-                            drawLine(
-                                color = color,
-                                start = points[i],
-                                end = points[i + 1],
-                                strokeWidth = 6f,
-                            )
-                        }
-                    }
+                    Text(
+                        text = value.removeSuffix("分"),
+                        color = accent,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 34.sp,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "分",
+                        modifier = Modifier.padding(bottom = 3.dp),
+                        color = accent,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 20.sp,
+                        maxLines = 1,
+                    )
                 }
             }
-            Image(
-                painter = painterResource(id = R.drawable.hand),
-                contentDescription = "hand",
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .offset(y = 26.dp)
-                    .size(140.dp),
-            )
         }
     }
 }
@@ -463,35 +538,44 @@ private fun WeeklyUsageCard(sessionLogs: List<SessionLog>) {
     val axisMax = roundUpAxisMinutes(maxMinutes)
     val axisStep = (axisMax / 4).coerceAtLeast(15)
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFFFCF7))))
+                .border(1.dp, Color(0xFFFFE1B6), RoundedCornerShape(22.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("一週間の使用時間", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.Black)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFFF0D5)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Outlined.BarChart, contentDescription = null, tint = Color(0xFFFF9800))
+                }
+                Text("一週間の使用時間", fontWeight = FontWeight.ExtraBold, color = Color(0xFF2D2520), fontSize = 20.sp)
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 170.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .height(180.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Column(
-                    modifier = Modifier.height(140.dp),
+                    modifier = Modifier.height(146.dp),
                     verticalArrangement = Arrangement.SpaceBetween,
                     horizontalAlignment = Alignment.End,
                 ) {
                     for (step in 4 downTo 0) {
-                        Text(
-                            formatMinutesAsHourMinute(axisStep * step),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.Black,
-                            fontSize = 13.sp,
-                        )
+                        Text("${axisStep * step}分", color = Color(0xFF55504B), fontSize = 12.sp, maxLines = 1)
                     }
                 }
                 weekly.forEach { (label, minutes) ->
@@ -500,22 +584,15 @@ private fun WeeklyUsageCard(sessionLogs: List<SessionLog>) {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Bottom,
                     ) {
+                        Text("${minutes}分", color = Color(0xFF3A332D), fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height((140f * (minutes.toFloat() / axisMax)).dp.coerceAtLeast(4.dp))
-                                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                                .background(Color(0xFFFF8C00)),
+                                .height((128f * (minutes.toFloat() / axisMax)).dp.coerceAtLeast(5.dp))
+                                .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp))
+                                .background(Brush.verticalGradient(listOf(Color(0xFFFF9F1C), Color(0xFFFF7A00)))),
                         )
-                        Text(
-                            formatMinutesAsHourMinute(minutes),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.Black,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                        )
-                        Text(label, style = MaterialTheme.typography.labelMedium, color = Color.Black, fontSize = 12.sp)
+                        Text(label, color = Color(0xFF3A332D), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }
@@ -1157,19 +1234,23 @@ private fun SectionCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFFF7ED))))
+                .border(1.dp, Color(0xFFFFE2B8), RoundedCornerShape(20.dp))
                 .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             content = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF2B1E17))
+                    if (subtitle.isNotBlank()) {
+                        Text(subtitle, color = Color(0xFF8D7B69))
+                    }
                 }
                 content()
             },
