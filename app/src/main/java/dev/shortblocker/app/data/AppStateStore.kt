@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 
 private val Context.shortblockerDataStore: DataStore<AppState> by dataStore(
@@ -225,7 +226,7 @@ class AppStateStore(
         }
     }
 
-    private fun currentEpochDays(): Long = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
+    private fun currentEpochDays(): Long = LocalDate.now().toEpochDay()
 
     private fun normalizeShortsWatchHistory(
         state: AppState,

@@ -2,6 +2,7 @@ package dev.shortblocker.app.data
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.LocalDate
 
 object AppStateJsonCodec {
     fun encode(state: AppState): String = JSONObject().apply {
@@ -42,7 +43,7 @@ object AppStateJsonCodec {
             dailyShortsWatchSeconds = json.optLong("dailyShortsWatchSeconds", 0L),
             lastResetDateEpochDays = json.optLong(
                 "lastResetDateEpochDays",
-                System.currentTimeMillis() / (1000 * 60 * 60 * 24),
+                LocalDate.now().toEpochDay(),
             ),
             shortsWatchHistory = decodeShortsWatchHistory(json.optJSONArray("shortsWatchHistory")),
         )

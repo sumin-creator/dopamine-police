@@ -176,19 +176,31 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
         if (blocked) {
             detectionTimingGate.reset()
-            logDetectionTimingReset(decision, isPlaying)
+            logDetectionTimingReset(
+                decision = decision,
+                isPlaying = isPlaying,
+                timingCandidate = decision.snapshot.score >= state.settings.threshold,
+                threshold = state.settings.threshold,
+            )
             return false
         }
 
+        val timingCandidate = decision.snapshot.score >= state.settings.threshold
         val timing = detectionTimingGate.update(
             packageName = snapshot.packageName,
-            overThreshold = decision.triggerCandidate,
+            overThreshold = timingCandidate,
             now = snapshot.createdAtEpochMillis,
             requiredMillis = detectionDelayMillis(state),
         )
         recordDetectedShortsTime(timing.addedMillis)
-        logDetectionTiming(decision, timing, isPlaying)
-        return timing.readyToTrigger
+        logDetectionTiming(
+            decision = decision,
+            timing = timing,
+            isPlaying = isPlaying,
+            timingCandidate = timingCandidate,
+            threshold = state.settings.threshold,
+        )
+        return timing.readyToTrigger && decision.triggerCandidate
     }
 
     private fun detectionDelayMillis(state: AppState): Long {
@@ -203,6 +215,8 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         decision: DetectionDecision,
         timing: DetectionTimingResult,
         isPlaying: Boolean,
+        timingCandidate: Boolean,
+        threshold: Int,
     ) {
         val accumulatedSeconds = timing.accumulatedMillis / 1000.0
         val requiredSeconds = timing.requiredMillis / 1000.0
@@ -210,7 +224,9 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             TAG,
             "timing pkg=${decision.snapshot.packageName}" +
                 " score=${decision.snapshot.score}" +
-                " candidate=${flag(decision.triggerCandidate)}" +
+                " threshold=$threshold" +
+                " candidate=${flag(timingCandidate)}" +
+                " triggerable=${flag(decision.triggerCandidate)}" +
                 " playing=${flag(isPlaying)}" +
                 " accumulated=${"%.1f".format(accumulatedSeconds)}s/${"%.1f".format(requiredSeconds)}s" +
                 " ready=${flag(timing.readyToTrigger)}",
@@ -220,12 +236,16 @@ class ShortVideoAccessibilityService : AccessibilityService() {
     private fun logDetectionTimingReset(
         decision: DetectionDecision,
         isPlaying: Boolean,
+        timingCandidate: Boolean,
+        threshold: Int,
     ) {
         Log.d(
             TAG,
             "timing reset pkg=${decision.snapshot.packageName}" +
                 " score=${decision.snapshot.score}" +
-                " candidate=${flag(decision.triggerCandidate)}" +
+                " threshold=$threshold" +
+                " candidate=${flag(timingCandidate)}" +
+                " triggerable=${flag(decision.triggerCandidate)}" +
                 " playing=${flag(isPlaying)}",
         )
     }
