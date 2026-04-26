@@ -2,6 +2,7 @@ package dev.shortblocker.app.domain
 
 import android.accessibilityservice.AccessibilityService
 import android.media.session.PlaybackState
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import dev.shortblocker.app.ShortblockerApplication
 import dev.shortblocker.app.data.AppState
@@ -168,20 +169,60 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
         if (blocked) {
             detectionTimingGate.reset()
+            logDetectionTimingReset(decision, requireActivePlayback, isPlaying)
             return false
         }
 
-        return detectionTimingGate.update(
+        val timing = detectionTimingGate.update(
             packageName = snapshot.packageName,
             overThreshold = decision.triggerCandidate,
             now = snapshot.createdAtEpochMillis,
             requiredMillis = detectionDelayMillis(state),
-        ).readyToTrigger
+        )
+        logDetectionTiming(decision, timing, requireActivePlayback, isPlaying)
+        return timing.readyToTrigger
     }
 
     private fun detectionDelayMillis(state: AppState): Long {
         return TimeUnit.MINUTES.toMillis(state.settings.cooldownMinutes.coerceAtLeast(1).toLong())
     }
+
+    private fun logDetectionTiming(
+        decision: DetectionDecision,
+        timing: DetectionTimingResult,
+        requireActivePlayback: Boolean,
+        isPlaying: Boolean,
+    ) {
+        val accumulatedSeconds = timing.accumulatedMillis / 1000.0
+        val requiredSeconds = timing.requiredMillis / 1000.0
+        Log.d(
+            TAG,
+            "timing pkg=${decision.snapshot.packageName}" +
+                " score=${decision.snapshot.score}" +
+                " candidate=${flag(decision.triggerCandidate)}" +
+                " playbackRequired=${flag(requireActivePlayback)}" +
+                " playing=${flag(isPlaying)}" +
+                " accumulated=${"%.1f".format(accumulatedSeconds)}s/${"%.1f".format(requiredSeconds)}s" +
+                " ready=${flag(timing.readyToTrigger)}",
+        )
+    }
+
+    private fun logDetectionTimingReset(
+        decision: DetectionDecision,
+        requireActivePlayback: Boolean,
+        isPlaying: Boolean,
+    ) {
+        Log.d(
+            TAG,
+            "timing reset pkg=${decision.snapshot.packageName}" +
+                " score=${decision.snapshot.score}" +
+                " candidate=${flag(decision.triggerCandidate)}" +
+                " playbackRequired=${flag(requireActivePlayback)}" +
+                " playing=${flag(isPlaying)}",
+        )
+    }
+
+    private fun flag(value: Boolean): String = if (value) "Y" else "N"
 
     private fun checkPlaybackActive(packageName: String): Boolean {
         if (packageName.isBlank()) return false
@@ -201,5 +242,8 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             false
         }
     }
-}
 
+    private companion object {
+        const val TAG = "ShortDetectionTiming"
+    }
+}
