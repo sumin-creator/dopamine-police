@@ -2,16 +2,20 @@ package dev.shortblocker.app.domain
 
 import android.accessibilityservice.AccessibilityService
 import android.media.session.PlaybackState
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import dev.shortblocker.app.ShortblockerApplication
+import dev.shortblocker.app.data.AppState
 import dev.shortblocker.app.data.ServiceTarget
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 
 class ShortVideoAccessibilityService : AccessibilityService() {
     private val application by lazy { applicationContext as ShortblockerApplication }
+    private val detectionTimingGate = DetectionTimingGate()
 
     // 監視タイマー用のJobを保持
     private var monitorJob: Job? = null
@@ -51,7 +55,13 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         }
 
         if (decision != null) {
-            handleDecision(decision)
+            handleDecision(
+                decision = decision,
+                shouldTrigger = shouldTriggerAfterDetectionTiming(
+                    decision = decision,
+                    state = state,
+                ),
+            )
         }
     }
 
@@ -68,8 +78,15 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
                 val rootNode = rootInActiveWindow
                 val activePackage = rootNode?.packageName?.toString().orEmpty()
+                if (activePackage.isBlank()) {
+                    logDetectionTimingSkipped("active-window-unavailable")
+                    runCatching { rootNode?.recycle() }
+                    continue
+                }
                 val isTargetApp = ServiceTarget.fromPackage(activePackage) != null
                 if (!isTargetApp) {
+                    detectionTimingGate.reset()
+                    logDetectionTimingGateReset("non-target-app pkg=$activePackage")
                     runCatching { rootNode?.recycle() }
                     continue
                 }
@@ -97,10 +114,15 @@ class ShortVideoAccessibilityService : AccessibilityService() {
                         store.addWatchTime(3) // 3秒加算
                     }
 
-                    // 3. 再生中かつ閾値超えの場合のみ介入
-                    if (decision.shouldTrigger && isPlaying) {
-                        handleDecision(decision)
-                    }
+                    // 3. 閾値超えの累積時間が設定値を超えた場合のみ介入
+                    handleDecision(
+                        decision = decision,
+                        shouldTrigger = shouldTriggerAfterDetectionTiming(
+                            decision = decision,
+                            state = state,
+                            isPlaying = isPlaying,
+                        ),
+                    )
                 }
             }
         }
@@ -109,16 +131,20 @@ class ShortVideoAccessibilityService : AccessibilityService() {
     private fun stopMonitoringTimer() {
         monitorJob?.cancel()
         monitorJob = null
+        detectionTimingGate.reset()
     }
 
-    private fun handleDecision(decision: DetectionDecision) {
+    private fun handleDecision(
+        decision: DetectionDecision,
+        shouldTrigger: Boolean,
+    ) {
         application.container.applicationScope.launch {
             application.container.store.applyEvaluation(
                 snapshot = decision.snapshot,
-                shouldTrigger = decision.shouldTrigger,
+                shouldTrigger = shouldTrigger,
                 source = "service"
             )
-            if (decision.shouldTrigger) {
+            if (shouldTrigger) {
                 application.container.notificationController.showIntervention(
                     decision.snapshot.toPendingIntervention(source = "service")
                 )
@@ -129,6 +155,81 @@ class ShortVideoAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {
         stopMonitoringTimer()
     }
+
+    private fun shouldTriggerAfterDetectionTiming(
+        decision: DetectionDecision,
+        state: AppState,
+        isPlaying: Boolean = true,
+    ): Boolean {
+        val snapshot = decision.snapshot
+        val target = ServiceTarget.fromPackage(snapshot.packageName)
+        val blocked = state.pendingIntervention != null ||
+            target == null ||
+            !state.settings.alertsEnabled ||
+            !state.settings.supportedApps.isEnabled(target) ||
+            !state.permissions.canIntervene ||
+            snapshot.createdAtEpochMillis < state.cooldownUntilEpochMillis
+
+        if (blocked) {
+            detectionTimingGate.reset()
+            logDetectionTimingReset(decision, isPlaying)
+            return false
+        }
+
+        val timing = detectionTimingGate.update(
+            packageName = snapshot.packageName,
+            overThreshold = decision.triggerCandidate,
+            now = snapshot.createdAtEpochMillis,
+            requiredMillis = detectionDelayMillis(state),
+        )
+        logDetectionTiming(decision, timing, isPlaying)
+        return timing.readyToTrigger
+    }
+
+    private fun detectionDelayMillis(state: AppState): Long {
+        return TimeUnit.MINUTES.toMillis(state.settings.cooldownMinutes.coerceAtLeast(1).toLong())
+    }
+
+    private fun logDetectionTiming(
+        decision: DetectionDecision,
+        timing: DetectionTimingResult,
+        isPlaying: Boolean,
+    ) {
+        val accumulatedSeconds = timing.accumulatedMillis / 1000.0
+        val requiredSeconds = timing.requiredMillis / 1000.0
+        Log.d(
+            TAG,
+            "timing pkg=${decision.snapshot.packageName}" +
+                " score=${decision.snapshot.score}" +
+                " candidate=${flag(decision.triggerCandidate)}" +
+                " playing=${flag(isPlaying)}" +
+                " accumulated=${"%.1f".format(accumulatedSeconds)}s/${"%.1f".format(requiredSeconds)}s" +
+                " ready=${flag(timing.readyToTrigger)}",
+        )
+    }
+
+    private fun logDetectionTimingReset(
+        decision: DetectionDecision,
+        isPlaying: Boolean,
+    ) {
+        Log.d(
+            TAG,
+            "timing reset pkg=${decision.snapshot.packageName}" +
+                " score=${decision.snapshot.score}" +
+                " candidate=${flag(decision.triggerCandidate)}" +
+                " playing=${flag(isPlaying)}",
+        )
+    }
+
+    private fun logDetectionTimingGateReset(reason: String) {
+        Log.d(TAG, "timing gate reset reason=$reason")
+    }
+
+    private fun logDetectionTimingSkipped(reason: String) {
+        Log.d(TAG, "timing skip reason=$reason")
+    }
+
+    private fun flag(value: Boolean): String = if (value) "Y" else "N"
 
     private fun checkPlaybackActive(packageName: String): Boolean {
         if (packageName.isBlank()) return false
@@ -148,6 +249,8 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             false
         }
     }
+
+    private companion object {
+        const val TAG = "ShortDetectionTiming"
+    }
 }
-
-
