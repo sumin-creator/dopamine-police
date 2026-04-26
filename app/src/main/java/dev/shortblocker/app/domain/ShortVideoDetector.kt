@@ -94,21 +94,13 @@ internal data class ObservedEvent(
 )
 
 class ShortVideoDetector {
-    private val lateNightDialogues = listOf(
-        "この時間のShorts、ほぼ事故だよ。",
-        "寝る前の1本が一番危ないよ。",
-    )
-    private val lightDialogues = listOf(
+    private val notificationDialogues = listOf(
+        "はい、おしまい。さっさと閉じなさい。",
+        "またショート動画？ 次から次へと、よく飽きないわね。",
         "ねえ、それ今ほんとに開く必要あった？",
         "画面に吸われる前に戻っておいで。",
-    )
-    private val mediumDialogues = listOf(
         "またshort動画の沼に入ろうとしてる。",
-        "1本だけって、今ので何本目？ ドバガキくんさぁ。",
-    )
-    private val strongDialogues = listOf(
-        "今日はさすがに見すぎ。",
-        "未来の自分に怒られるやつだよ。",
+        "1本だけって、今ので何本目？",
     )
     private val youtubeActionRailHints = listOf(
         "like",
@@ -218,11 +210,7 @@ class ShortVideoDetector {
             targetAppContext + shortsLikeUi + sessionDuration + playbackMomentum,
         )
         val warningLevel = warningLevelFromScore(total)
-        val dialogue = dialogueFor(
-            level = warningLevel,
-            timeBand = scenario.timeBand,
-            seed = scenario.sessionMinutes + scenario.swipeBurst + scenario.relaunchCount,
-        )
+        val dialogue = dialogueFor(seed = scenario.sessionMinutes + scenario.swipeBurst + scenario.relaunchCount)
         val breakdown = listOf(
             DetectionBreakdown(
                 label = "Target App Context",
@@ -1058,22 +1046,7 @@ class ShortVideoDetector {
         else -> WarningLevel.WATCH
     }
 
-    private fun dialogueFor(level: WarningLevel, timeBand: TimeBand, seed: Int): String {
-        if (level == WarningLevel.WATCH) {
-            return "通常利用の範囲。必要以上に邪魔せず見守ります。"
-        }
-        val pool = if (timeBand == TimeBand.LATE_NIGHT) {
-            lateNightDialogues
-        } else {
-            when (level) {
-                WarningLevel.LIGHT -> lightDialogues
-                WarningLevel.MEDIUM -> mediumDialogues
-                WarningLevel.STRONG -> strongDialogues
-                WarningLevel.WATCH -> lightDialogues
-            }
-        }
-        return pool[seed.mod(pool.size)]
-    }
+    private fun dialogueFor(seed: Int): String = notificationDialogues[seed.mod(notificationDialogues.size)]
 
     private fun mediaPlaybackLabel(mediaPlaybackActive: Boolean?): String = when (mediaPlaybackActive) {
         true -> "playing"
