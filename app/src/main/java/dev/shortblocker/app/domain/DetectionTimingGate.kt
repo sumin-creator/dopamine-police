@@ -4,6 +4,7 @@ internal data class DetectionTimingResult(
     val accumulatedMillis: Long,
     val requiredMillis: Long,
     val readyToTrigger: Boolean,
+    val addedMillis: Long = 0L,
 )
 
 internal class DetectionTimingGate(
@@ -36,13 +37,7 @@ internal class DetectionTimingGate(
             resetForPackage(packageName)
         }
 
-        val lastUpdatedAt = lastUpdatedAtMillis
-        if (lastUpdatedAt != null && wasOverThreshold) {
-            val elapsedMillis = now - lastUpdatedAt
-            if (elapsedMillis > 0L) {
-                accumulatedMillis += elapsedMillis.coerceAtMost(maxCountableGapMillis)
-            }
-        }
+        val addedMillis = accumulateOverThresholdIntervalUntil(now)
         lastUpdatedAtMillis = now
         wasOverThreshold = overThreshold
 
@@ -54,6 +49,7 @@ internal class DetectionTimingGate(
                 accumulatedMillis = accumulatedMillis,
                 requiredMillis = normalizedRequiredMillis,
                 readyToTrigger = false,
+                addedMillis = addedMillis,
             )
         }
 
@@ -65,6 +61,24 @@ internal class DetectionTimingGate(
             accumulatedMillis = accumulatedMillis,
             requiredMillis = normalizedRequiredMillis,
             readyToTrigger = readyToTrigger,
+            addedMillis = addedMillis,
+        )
+    }
+
+    @Synchronized
+    fun pause(now: Long? = null): DetectionTimingResult {
+        val addedMillis = if (now != null) {
+            accumulateOverThresholdIntervalUntil(now)
+        } else {
+            0L
+        }
+        lastUpdatedAtMillis = null
+        wasOverThreshold = false
+        return DetectionTimingResult(
+            accumulatedMillis = accumulatedMillis,
+            requiredMillis = 0L,
+            readyToTrigger = false,
+            addedMillis = addedMillis,
         )
     }
 
@@ -83,6 +97,19 @@ internal class DetectionTimingGate(
         lastUpdatedAtMillis = null
         wasOverThreshold = false
         hasTriggered = false
+    }
+
+    private fun accumulateOverThresholdIntervalUntil(now: Long): Long {
+        val lastUpdatedAt = lastUpdatedAtMillis
+        if (lastUpdatedAt != null && wasOverThreshold) {
+            val elapsedMillis = now - lastUpdatedAt
+            if (elapsedMillis > 0L) {
+                val addedMillis = elapsedMillis.coerceAtMost(maxCountableGapMillis)
+                accumulatedMillis += addedMillis
+                return addedMillis
+            }
+        }
+        return 0L
     }
 
     private companion object {

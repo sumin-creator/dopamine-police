@@ -47,6 +47,23 @@ class DetectionTimingGateTest {
     }
 
     @Test
+    fun pausePreservesAccumulatedTimeAndDoesNotCountPausedGap() {
+        val gate = DetectionTimingGate(maxCountableGapMillis = 120_000L)
+        val requiredMillis = 60_000L
+
+        gate.update(packageName, overThreshold = true, now = 0L, requiredMillis)
+        val paused = gate.pause(now = 30_000L)
+        val resumed = gate.update(packageName, overThreshold = true, now = 90_000L, requiredMillis)
+        val ready = gate.update(packageName, overThreshold = true, now = 120_000L, requiredMillis)
+
+        assertEquals(30_000L, paused.accumulatedMillis)
+        assertEquals(30_000L, resumed.accumulatedMillis)
+        assertFalse(resumed.readyToTrigger)
+        assertEquals(60_000L, ready.accumulatedMillis)
+        assertTrue(ready.readyToTrigger)
+    }
+
+    @Test
     fun packageChangeResetsAccumulatedTime() {
         val gate = DetectionTimingGate(maxCountableGapMillis = 120_000L)
         val requiredMillis = 60_000L
