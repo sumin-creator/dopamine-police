@@ -163,28 +163,10 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         isPlaying: Boolean = true,
     ): Boolean {
         val snapshot = decision.snapshot
-        val target = ServiceTarget.fromPackage(snapshot.packageName)
         if (!isDetectionTimingTarget(snapshot.packageName)) {
             pauseDetectionTiming("non-target-decision pkg=${snapshot.packageName}", snapshot.createdAtEpochMillis)
             return false
         }
-        val blocked = state.pendingIntervention != null ||
-            !state.settings.alertsEnabled ||
-            !state.settings.supportedApps.isEnabled(target) ||
-            !state.permissions.canIntervene ||
-            snapshot.createdAtEpochMillis < state.cooldownUntilEpochMillis
-
-        if (blocked) {
-            detectionTimingGate.reset()
-            logDetectionTimingReset(
-                decision = decision,
-                isPlaying = isPlaying,
-                timingCandidate = decision.snapshot.score >= state.settings.threshold,
-                threshold = state.settings.threshold,
-            )
-            return false
-        }
-
         val timingCandidate = decision.snapshot.score >= state.settings.threshold
         val timing = detectionTimingGate.update(
             packageName = snapshot.packageName,
@@ -200,7 +182,9 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             timingCandidate = timingCandidate,
             threshold = state.settings.threshold,
         )
-        return timing.readyToTrigger && decision.triggerCandidate
+        return timing.readyToTrigger &&
+            decision.triggerCandidate &&
+            state.pendingIntervention == null
     }
 
     private fun detectionDelayMillis(state: AppState): Long {
@@ -230,23 +214,6 @@ class ShortVideoAccessibilityService : AccessibilityService() {
                 " playing=${flag(isPlaying)}" +
                 " accumulated=${"%.1f".format(accumulatedSeconds)}s/${"%.1f".format(requiredSeconds)}s" +
                 " ready=${flag(timing.readyToTrigger)}",
-        )
-    }
-
-    private fun logDetectionTimingReset(
-        decision: DetectionDecision,
-        isPlaying: Boolean,
-        timingCandidate: Boolean,
-        threshold: Int,
-    ) {
-        Log.d(
-            TAG,
-            "timing reset pkg=${decision.snapshot.packageName}" +
-                " score=${decision.snapshot.score}" +
-                " threshold=$threshold" +
-                " candidate=${flag(timingCandidate)}" +
-                " triggerable=${flag(decision.triggerCandidate)}" +
-                " playing=${flag(isPlaying)}",
         )
     }
 

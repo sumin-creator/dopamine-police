@@ -89,4 +89,22 @@ class DetectionTimingGateTest {
         gate.update(packageName, overThreshold = true, now = 130_000L, requiredMillis)
         assertTrue(gate.update(packageName, overThreshold = true, now = 190_000L, requiredMillis).readyToTrigger)
     }
+
+    @Test
+    fun continuesCountingAfterTriggerWithoutRetriggering() {
+        val gate = DetectionTimingGate(maxCountableGapMillis = 120_000L)
+        val requiredMillis = 60_000L
+
+        gate.update(packageName, overThreshold = true, now = 0L, requiredMillis)
+        assertTrue(gate.update(packageName, overThreshold = true, now = 60_000L, requiredMillis).readyToTrigger)
+
+        val afterTrigger = gate.update(packageName, overThreshold = true, now = 90_000L, requiredMillis)
+        val paused = gate.pause(now = 120_000L)
+
+        assertFalse(afterTrigger.readyToTrigger)
+        assertEquals(90_000L, afterTrigger.accumulatedMillis)
+        assertEquals(30_000L, afterTrigger.addedMillis)
+        assertEquals(120_000L, paused.accumulatedMillis)
+        assertEquals(30_000L, paused.addedMillis)
+    }
 }
