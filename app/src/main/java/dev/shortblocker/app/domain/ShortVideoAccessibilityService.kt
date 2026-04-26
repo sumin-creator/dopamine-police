@@ -1,7 +1,7 @@
 package dev.shortblocker.app.domain
 
 import android.accessibilityservice.AccessibilityService
-import android.content.Intent
+import android.media.session.PlaybackState
 import android.view.accessibility.AccessibilityEvent
 import dev.shortblocker.app.ShortblockerApplication
 import dev.shortblocker.app.data.DetectionSnapshot
@@ -16,126 +16,141 @@ class ShortVideoAccessibilityService : AccessibilityService() {
     private val shortblockerApplication by lazy { applicationContext as ShortblockerApplication }
     private var playbackTickJob: Job? = null
 
-    override fun onServiceConnected() {
-        super.onServiceConnected()
-        shortblockerApplication.container.notificationController.createChannel()
-        shortblockerApplication.container.applicationScope.launch {
-            shortblockerApplication.container.store.updatePermissions(
-                currentPermissions(),
-            )
-        }
-        startPlaybackTicks()
-    }
+    // 監視タイマー用のJobを保持
+    private var monitorJob: Job? = null
+
+    // ... (既存の onServiceConnected などはそのまま) ...
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val safeEvent = event ?: return
-        if (safeEvent.packageName?.toString() == packageName) {
+        val currentPackageName = safeEvent.packageName?.toString() ?: return
+
+        // 自身からのイベントは無視
+        if (currentPackageName == packageName) return
+
+        // システムUIやキーボードからのイベントを完全に無視する
+        if (currentPackageName == "com.android.systemui" ||
+            currentPackageName.contains("inputmethod")) {
             return
         }
 
         val store = shortblockerApplication.container.store
         val state = store.state.value
-        val permissions = currentPermissions()
-        val mediaPlaybackActive = if (safeEvent.packageName?.toString() == ServiceTarget.YOUTUBE.packageName) {
-            shortblockerApplication.container.mediaPlaybackObserver.isPlaybackActive(ServiceTarget.YOUTUBE.packageName)
-        } else {
-            null
-        }
-        val decision = shortblockerApplication.container.detector.processEvent(
+
+        // 既存のイベント駆動の処理
+        val decision = application.container.detector.processEvent(
             event = safeEvent,
             settings = state.settings,
-            permissions = permissions,
-            cooldownUntilEpochMillis = state.cooldownUntilEpochMillis,
-            mediaPlaybackActive = mediaPlaybackActive,
-        ) ?: return
-
-        applyDecisionAsync(
-            snapshot = decision.snapshot,
-            shouldTrigger = decision.shouldTrigger,
-            permissions = permissions,
-            source = "service",
+            permissions = state.permissions,
+            cooldownUntilEpochMillis = state.cooldownUntilEpochMillis
         )
-    }
 
-    override fun onInterrupt() = Unit
-
-    override fun onUnbind(intent: Intent?): Boolean {
-        playbackTickJob?.cancel()
-        playbackTickJob = null
-        return super.onUnbind(intent)
-    }
-
-    override fun onDestroy() {
-        playbackTickJob?.cancel()
-        playbackTickJob = null
-        super.onDestroy()
-    }
-
-    private fun startPlaybackTicks() {
-        if (playbackTickJob?.isActive == true) {
-            return
+        // 対象アプリならタイマーを開始、それ以外なら停止
+        val targetPackageName = safeEvent.packageName?.toString()
+        if (ServiceTarget.fromPackage(targetPackageName) != null) {
+            startMonitoringTimer()
+        } else {
+            stopMonitoringTimer()
         }
-        playbackTickJob = shortblockerApplication.container.applicationScope.launch {
+
+        if (decision != null) {
+            handleDecision(decision)
+        }
+    }
+
+    // 新規追加：タイマー処理
+    private fun startMonitoringTimer() {
+        if (monitorJob?.isActive == true) return
+
+        monitorJob = application.container.applicationScope.launch {
             while (isActive) {
-                delay(PLAYBACK_TICK_INTERVAL_MS)
-                runPlaybackTick()
+                delay(3000L) // 3秒ごとにチェック
+
+                val store = application.container.store
+                val state = store.state.value
+
+                val rootNode = rootInActiveWindow
+                val activePackage = rootNode?.packageName?.toString().orEmpty()
+                val isTargetApp = ServiceTarget.fromPackage(activePackage) != null
+                if (!isTargetApp) {
+                    runCatching { rootNode?.recycle() }
+                    continue
+                }
+                val isPlaying = checkPlaybackActive(activePackage)
+                val detector = application.container.detector
+
+                // 1. 視聴中の画面そのものを定期スキャンして検知を更新
+                val decision = detector.processActiveWindowSnapshot(
+                    packageName = activePackage,
+                    rootNode = rootNode,
+                    settings = state.settings,
+                    permissions = state.permissions,
+                    cooldownUntilEpochMillis = state.cooldownUntilEpochMillis,
+                    mediaPlaybackActive = isPlaying,
+                ) ?: detector.evaluateCurrentSession(
+                    settings = state.settings,
+                    permissions = state.permissions,
+                    cooldownUntilEpochMillis = state.cooldownUntilEpochMillis,
+                    mediaPlaybackActive = isPlaying,
+                )
+
+                if (decision != null) {
+                    // 2. 動画が再生中で、かつ何らかの検知スコアがある場合のみ視聴時間を加算
+                    if (isPlaying && decision.snapshot.score > 0) {
+                        store.addWatchTime(3) // 3秒加算
+                    }
+
+                    // 3. 再生中かつ閾値超えの場合のみ介入
+                    if (decision.shouldTrigger && isPlaying) {
+                        handleDecision(decision)
+                    }
+                }
             }
         }
     }
 
-    private fun runPlaybackTick() {
-        val store = shortblockerApplication.container.store
-        val state = store.state.value
-        val permissions = currentPermissions()
-        val mediaPlaybackActive = shortblockerApplication.container.mediaPlaybackObserver
-            .isPlaybackActive(ServiceTarget.YOUTUBE.packageName)
-        val decision = shortblockerApplication.container.detector.processPlaybackTick(
-            settings = state.settings,
-            permissions = permissions,
-            cooldownUntilEpochMillis = state.cooldownUntilEpochMillis,
-            mediaPlaybackActive = mediaPlaybackActive,
-        ) ?: return
-
-        applyDecisionAsync(
-            snapshot = decision.snapshot,
-            shouldTrigger = decision.shouldTrigger,
-            permissions = permissions,
-            source = "playback-tick",
-        )
+    private fun stopMonitoringTimer() {
+        monitorJob?.cancel()
+        monitorJob = null
     }
 
-    private fun applyDecisionAsync(
-        snapshot: DetectionSnapshot,
-        shouldTrigger: Boolean,
-        permissions: PermissionSnapshot,
-        source: String,
-    ) {
-        val store = shortblockerApplication.container.store
-        shortblockerApplication.container.applicationScope.launch {
-            if (store.state.value.permissions != permissions) {
-                store.updatePermissions(permissions)
-            }
-            store.applyEvaluation(
-                snapshot = snapshot,
-                shouldTrigger = shouldTrigger,
-                source = source,
+    private fun handleDecision(decision: DetectionDecision) {
+        application.container.applicationScope.launch {
+            application.container.store.applyEvaluation(
+                snapshot = decision.snapshot,
+                shouldTrigger = decision.shouldTrigger,
+                source = "service"
             )
-            if (shouldTrigger) {
-                shortblockerApplication.container.notificationController.showIntervention(
-                    snapshot.toPendingIntervention(source = source),
+            if (decision.shouldTrigger) {
+                application.container.notificationController.showIntervention(
+                    decision.snapshot.toPendingIntervention(source = "service")
                 )
             }
         }
     }
 
-    private fun currentPermissions(): PermissionSnapshot {
-        return PermissionSnapshotBuilder.build(
-            context = applicationContext,
-            serviceClass = ShortVideoAccessibilityService::class.java,
-        )
+    override fun onInterrupt() {
+        stopMonitoringTimer()
     }
 
-    private companion object {
-        const val PLAYBACK_TICK_INTERVAL_MS = 5_000L
+    private fun checkPlaybackActive(packageName: String): Boolean {
+        if (packageName.isBlank()) return false
+        return try {
+            val mediaSessionManager = getSystemService(android.media.session.MediaSessionManager::class.java)
+            // すでに実装されている NotificationListenerService のコンポーネント名を指定
+            val componentName = android.content.ComponentName(this, ShortblockerMediaSessionListenerService::class.java)
+            val controllers = mediaSessionManager.getActiveSessions(componentName)
+
+            val targetController = controllers.firstOrNull { it.packageName == packageName }
+            val state = targetController?.playbackState?.state
+
+            // 再生中またはバッファリング中であれば true
+            state == PlaybackState.STATE_PLAYING || state == PlaybackState.STATE_BUFFERING
+        } catch (e: SecurityException) {
+            // 権限がない場合は安全のため false を返す
+            false
+        }
     }
 }
+
+

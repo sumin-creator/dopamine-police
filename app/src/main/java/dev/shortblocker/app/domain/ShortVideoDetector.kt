@@ -217,9 +217,16 @@ class ShortVideoDetector {
             SESSION_DURATION_MAX,
             sessionMinutesScore + dwellScore,
         )
+        val playbackMomentum = when {
+            scenario.mediaPlaybackActive == true && hasReliableShortVideoEvidence(scenario) -> PLAYBACK_MOMENTUM_RELIABLE
+            scenario.mediaPlaybackActive == true &&
+                scenario.keywords.isNotEmpty() &&
+                UiFeature.ACTION_RAIL in scenario.uiFeatures -> PLAYBACK_MOMENTUM_PARTIAL
+            else -> 0
+        }
         val total = min(
             100,
-            targetAppContext + shortsLikeUi + sessionDuration,
+            targetAppContext + shortsLikeUi + sessionDuration + playbackMomentum,
         )
         val warningLevel = warningLevelFromScore(total)
         val dialogue = dialogueFor(
@@ -245,6 +252,12 @@ class ShortVideoDetector {
                 value = sessionDuration,
                 max = SESSION_DURATION_MAX,
                 detail = "session ${sessionMinutesScore} / dwell ${dwellScore}",
+            ),
+            DetectionBreakdown(
+                label = "Playback Momentum",
+                value = playbackMomentum,
+                max = PLAYBACK_MOMENTUM_RELIABLE,
+                detail = mediaPlaybackLabel(scenario.mediaPlaybackActive),
             ),
         )
         val snapshot = DetectionSnapshot(
@@ -293,25 +306,27 @@ class ShortVideoDetector {
         )
     }
 
-    fun processPlaybackTick(
+    fun processActiveWindowSnapshot(
+        packageName: String,
+        rootNode: AccessibilityNodeInfo?,
         settings: MonitorSettings,
         permissions: PermissionSnapshot,
         cooldownUntilEpochMillis: Long,
-        mediaPlaybackActive: Boolean?,
+        mediaPlaybackActive: Boolean? = null,
         now: Long = System.currentTimeMillis(),
     ): DetectionDecision? {
-        val active = activeSession ?: return null
-        if (active.packageName != ServiceTarget.YOUTUBE.packageName) {
+        if (packageName.isBlank()) {
+            runCatching { rootNode?.recycle() }
             return null
         }
-        if (active.lastReliableEvidenceAt == 0L || active.stage == DetectionStage.IDLE) {
-            return null
-        }
+        val signals = collectNodeSignals(rootNode)
+        val observedEvent = ObservedEvent(
+            packageName = packageName,
+            type = ObservedEventType.WINDOW_CONTENT_CHANGED,
+            signals = signals,
+        )
         return processObservedEvent(
-            observedEvent = ObservedEvent(
-                packageName = active.packageName,
-                type = ObservedEventType.PLAYBACK_TICK,
-            ),
+            observedEvent = observedEvent,
             settings = settings,
             permissions = permissions,
             cooldownUntilEpochMillis = cooldownUntilEpochMillis,
@@ -608,7 +623,8 @@ class ShortVideoDetector {
         continuingShortsScroll: Boolean,
         continuingShortsPlayback: Boolean = false,
     ): ScoreableShortsEvidence {
-        val canScoreAsShorts = currentViewerEvidence || continuingShortsScroll || continuingShortsPlayback
+        val retainedShortsLikeEvidence = keywordHits.isNotEmpty() && actionHints.isNotEmpty()
+        val canScoreAsShorts = currentViewerEvidence || continuingShortsScroll || retainedShortsLikeEvidence
         return if (canScoreAsShorts) {
             ScoreableShortsEvidence(
                 keywordHits = keywordHits,
@@ -1214,25 +1230,27 @@ class ShortVideoDetector {
 
     private companion object {
         const val TAG = "ShortDetector"
-        const val APP_CONTEXT_MAX = 20
-        const val APP_CONTEXT_BASE = 8
-        const val RELAUNCH_CONTEXT_BONUS = 4
-        const val APP_CONTEXT_SETTLE_BONUS = 4
+        const val APP_CONTEXT_MAX = 10
+        const val APP_CONTEXT_BASE = 2
+        const val RELAUNCH_CONTEXT_BONUS = 2
+        const val APP_CONTEXT_SETTLE_BONUS = 2
         const val APP_CONTEXT_SETTLE_MINUTES = 3
-        const val SHORTS_UI_MAX = 55
-        const val KEYWORD_CONFIDENCE_MAX = 15
-        const val KEYWORD_HIT_WEIGHT = 8
-        const val ACTION_RAIL_CONFIDENCE = 14
-        const val VIDEO_STRUCTURE_CONFIDENCE = 18
-        const val FULLSCREEN_CONFIDENCE = 8
-        const val SESSION_DURATION_MAX = 25
-        const val SESSION_MINUTES_MAX = 15
-        const val DWELL_SECONDS_MAX = 10
+        const val SHORTS_UI_MAX = 70
+        const val KEYWORD_CONFIDENCE_MAX = 22
+        const val KEYWORD_HIT_WEIGHT = 11
+        const val ACTION_RAIL_CONFIDENCE = 20
+        const val VIDEO_STRUCTURE_CONFIDENCE = 24
+        const val FULLSCREEN_CONFIDENCE = 12
+        const val SESSION_DURATION_MAX = 20
+        const val SESSION_MINUTES_MAX = 12
+        const val DWELL_SECONDS_MAX = 8
+        const val PLAYBACK_MOMENTUM_RELIABLE = 18
+        const val PLAYBACK_MOMENTUM_PARTIAL = 12
         const val SCROLL_BURST_WINDOW_MS = 20_000L
         const val SHORTS_SWIPE_DEBOUNCE_MS = 900L
-        const val SHORTS_KEYWORD_TTL_MS = 20_000L
-        const val SHORTS_ACTION_HINT_TTL_MS = 12_000L
-        const val SHORTS_EVIDENCE_TTL_MS = 12_000L
+        const val SHORTS_KEYWORD_TTL_MS = 90_000L
+        const val SHORTS_ACTION_HINT_TTL_MS = 90_000L
+        const val SHORTS_EVIDENCE_TTL_MS = 90_000L
         const val WARNING_RATE_LIMIT_MS = 30_000L
         const val RELAUNCH_WINDOW_MS = 5 * 60_000L
         const val FALLBACK_MIN_ACTION_HINTS = 3
@@ -1246,4 +1264,91 @@ class ShortVideoDetector {
         const val STRUCTURAL_SHORTS_PLAYER_HINT = "ui:shorts-player"
         val VIEW_ID_TOKEN_SPLIT_REGEX = Regex("[^a-z0-9]+")
     }
+
+    fun evaluateCurrentSession(
+        settings: MonitorSettings,
+        permissions: PermissionSnapshot,
+        cooldownUntilEpochMillis: Long,
+        mediaPlaybackActive: Boolean? = null,
+        now: Long = System.currentTimeMillis()
+    ): DetectionDecision? {
+        // 現在アクティブなセッションがなければ何もしない
+        val session = activeSession ?: return null
+
+        // 最新の時刻を使って滞在時間を再計算
+        val sessionMinutes = ((now - session.sessionStartedAt) / 60_000L).toInt().coerceAtLeast(1)
+        val dwellSeconds = ((now - session.lastTransitionAt) / 1000L).toInt().coerceAtLeast(1)
+        val timeBand = TimeBand.fromHour(Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).hour)
+
+        val target = ServiceTarget.fromPackage(session.packageName) ?: ServiceTarget.YOUTUBE
+        val currentUiFeatures = detectUiFeatures(
+            target = target,
+            keywordHits = session.keywordHits,
+            actionHints = session.actionHints,
+            swipeBurst = session.swipeBurst
+        )
+
+        // 現在のセッション情報から最新のシナリオを構築
+        val scenario = DetectionScenario(
+            appName = session.appName,
+            packageName = session.packageName,
+            timeBand = timeBand,
+            sessionMinutes = sessionMinutes,
+            relaunchCount = session.relaunchCount,
+            swipeBurst = session.swipeBurst,
+            dwellSeconds = dwellSeconds,
+            reentryAfterWarning = session.relaunchCount > 0,
+            keywords = session.keywordHits.toList(),
+            // ▼修正：固定リストではなく、動的に再計算したものを渡す
+            uiFeatures = currentUiFeatures,
+            note = "Timer driven detection",
+            mediaPlaybackActive = mediaPlaybackActive,
+        )
+
+        val decision = evaluateScenario(
+            scenario = scenario,
+            settings = settings,
+            cooldownUntilEpochMillis = cooldownUntilEpochMillis,
+            requirePermissions = true,
+            permissions = permissions,
+            now = now
+        )
+
+        // クールダウンや直近の警告時間を考慮してトリガーすべきか判定
+        val recentWarning = lastWarningTimes[session.packageName] ?: 0L
+        val shouldTrigger = decision.shouldTrigger && now - recentWarning > 30_000L
+
+        if (shouldTrigger) {
+            lastWarningTimes[session.packageName] = now
+        }
+
+        return decision.copy(shouldTrigger = shouldTrigger)
+    }
+
+    private fun analyzeTextLayoutStructure(
+        positionedNodes: List<SignalNode>,
+        frameWidth: Int,
+        frameHeight: Int
+    ): Boolean {
+        // 画面下部（例：下から30%の領域）にあるテキストノードを抽出
+        val bottomTextNodes = positionedNodes.filter { node ->
+            val centerY = node.centerY ?: return@filter false
+            val hasText = node.normalizedText.isNotBlank()
+
+            hasText && centerY >= (frameHeight * 0.70).toInt()
+        }
+
+        // 下部領域にあるテキストの中に、ショート特有のキーワードが含まれているか
+        val hasShortsKeywordInBottom = bottomTextNodes.any { node ->
+            youtubeShortsKeywords.any { keyword ->
+                node.normalizedText.contains(keyword)
+            }
+        }
+
+        // テキストが左寄り（X座標の平均が画面中央より左）に配置されているかなど、
+        // ショート特有のテキストブロックの配置条件をここで判定可能
+
+        return bottomTextNodes.isNotEmpty() && hasShortsKeywordInBottom
+    }
+
 }
