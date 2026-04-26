@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 
 private val Context.shortblockerDataStore: DataStore<AppState> by dataStore(
@@ -94,8 +95,8 @@ class AppStateStore(
 
     suspend fun addWatchTime(seconds: Int) {
         context.shortblockerDataStore.updateDataCompat { current ->
-            // 現在の日付（エポックからの経過日数）を計算
-            val currentDays = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
+            // ローカル日付基準のエポック日で日付切り替えを判定
+            val currentDays = LocalDate.now().toEpochDay()
 
             if (current.lastResetDateEpochDays != currentDays) {
                 // 日付が変わっていれば0にリセットしてから加算

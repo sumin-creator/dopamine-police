@@ -1,6 +1,7 @@
 package dev.shortblocker.app.data
 
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -328,7 +329,7 @@ data class AppState(
 
 
     val dailyShortsWatchSeconds: Long = 0L,
-    val lastResetDateEpochDays: Long = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
+    val lastResetDateEpochDays: Long = LocalDate.now().toEpochDay()
 ) {
     fun dailyStats(): DailyStats {
         val warningCount = sessionLogs.count { it.triggeredWarning }

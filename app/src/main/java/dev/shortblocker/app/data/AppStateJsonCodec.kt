@@ -2,6 +2,7 @@ package dev.shortblocker.app.data
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.LocalDate
 
 object AppStateJsonCodec {
     fun encode(state: AppState): String = JSONObject().apply {
@@ -13,6 +14,8 @@ object AppStateJsonCodec {
         put("cooldownUntilEpochMillis", state.cooldownUntilEpochMillis)
         put("foregroundAppName", state.foregroundAppName)
         put("foregroundPackageName", state.foregroundPackageName)
+        put("dailyShortsWatchSeconds", state.dailyShortsWatchSeconds)
+        put("lastResetDateEpochDays", state.lastResetDateEpochDays)
         put("sessionLogs", JSONArray().apply {
             state.sessionLogs.forEach { put(encodeSessionLog(it)) }
         })
@@ -34,6 +37,11 @@ object AppStateJsonCodec {
             foregroundAppName = json.optString("foregroundAppName", "未取得"),
             foregroundPackageName = json.optString("foregroundPackageName", ""),
             sessionLogs = decodeSessionLogs(json.optJSONArray("sessionLogs")),
+            dailyShortsWatchSeconds = json.optLong("dailyShortsWatchSeconds", 0L),
+            lastResetDateEpochDays = json.optLong(
+                "lastResetDateEpochDays",
+                LocalDate.now().toEpochDay(),
+            ),
         )
     }
 
