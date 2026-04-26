@@ -753,7 +753,7 @@ private fun WeeklyUsageCard(state: AppState) {
                 .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFFFCF7))))
                 .border(1.dp, Color(0xFFFFE1B6), RoundedCornerShape(22.dp))
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
@@ -974,6 +974,17 @@ private data class AxisScale(
 )
 
 private fun buildAxisScale(maxValue: Int): AxisScale {
+    if (maxValue > 60) {
+        val axisMax = ((maxValue + 59) / 60) * 60
+        val tickValues = (0..axisMax step 60).toList()
+        return AxisScale(
+            axisMin = -60,
+            axisMax = axisMax,
+            gridValues = listOf(-60) + tickValues,
+            tickValues = tickValues,
+        )
+    }
+
     return AxisScale(
         axisMin = -15,
         axisMax = 60,
