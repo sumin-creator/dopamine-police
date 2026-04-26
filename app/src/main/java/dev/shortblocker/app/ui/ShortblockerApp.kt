@@ -1,15 +1,13 @@
 package dev.shortblocker.app.ui
 
-import android.Manifest
 import android.content.Intent
-import android.os.Build
 import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
@@ -46,14 +44,13 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -75,6 +72,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -169,12 +169,6 @@ fun ShortblockerApp(
     val demoDecision by viewModel.demoDecision.collectAsStateWithLifecycle()
     var currentTab by rememberSaveable { mutableStateOf(AppTab.DASHBOARD) }
 
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) {
-        viewModel.refreshRuntimeState(context)
-    }
-
     LaunchedEffect(requestedTab) {
         currentTab = AppTab.fromRoute(requestedTab)
     }
@@ -257,13 +251,6 @@ fun ShortblockerApp(
                 AppTab.DASHBOARD -> DashboardScreen(state = state)
                 AppTab.MONITOR -> MonitorScreen(
                     state = state,
-                    onRequestNotificationPermission = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else {
-                            viewModel.refreshRuntimeState(context)
-                        }
-                    },
                     onOpenAccessibilitySettings = {
                         context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     },
@@ -316,14 +303,14 @@ private fun DashboardScreen(state: AppState) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         HomeTile(
                             title = "1日の目標",
-                            value = formatMinutesAsHourMinute(state.settings.dailyGoalMinutes),
+                            value = "${state.settings.dailyGoalMinutes}分",
                             modifier = Modifier.weight(1f),
                             colorA = Color.White,
                             colorB = Color(0xFFFFF4E8),
                         )
                         HomeTile(
                             title = "検知タイミング",
-                            value = formatMinutesAsHourMinute(state.settings.cooldownMinutes),
+                            value = "${state.settings.cooldownMinutes}分",
                             modifier = Modifier.weight(1f),
                             titleFontSize = 15.sp,
                             colorA = Color.White,
@@ -736,7 +723,6 @@ private fun CharacterVisual(modifier: Modifier = Modifier) {
 @Composable
 private fun MonitorScreen(
     state: AppState,
-    onRequestNotificationPermission: () -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
     onOpenUsageSettings: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
@@ -744,53 +730,65 @@ private fun MonitorScreen(
     onDetectionMinutesChange: (Int) -> Unit,
     onDailyGoalChange: (Int) -> Unit,
 ) {
+    val goalMinutes = state.settings.dailyGoalMinutes
+    val detectionMinutes = state.settings.cooldownMinutes
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            SectionCard(
-                title = "見守り設定",
-                subtitle = "補助信号は任意",
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusBadge("目標 ${state.settings.dailyGoalMinutes}分", Color(0xFFEF6C9A))
-                    StatusBadge("検知 ${state.settings.cooldownMinutes}分", Color(0xFF30A58F))
-                }
-            }
-        }
-        item {
-            SectionCard(title = "時間の設定", subtitle = "シンプル設定") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SettingSlider(
-                        label = "検知開始までの時間",
-                        value = state.settings.cooldownMinutes.toFloat(),
-                        valueRange = 1f..30f,
-                        steps = 28,
-                        display = "${state.settings.cooldownMinutes} min",
-                        onValueChange = { onDetectionMinutesChange(it.toInt()) },
+            SectionCard(title = "時間設定", subtitle = "") {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TimeSettingTile(
+                        label = "1日の目標",
+                        minutes = goalMinutes,
+                        minMinutes = 10,
+                        maxMinutes = 180,
+                        onCommitMinutes = onDailyGoalChange,
+                        modifier = Modifier.weight(1f),
                     )
-                    SettingSlider(
-                        label = "1日の目標時間",
-                        value = state.settings.dailyGoalMinutes.toFloat(),
-                        valueRange = 10f..180f,
-                        steps = 16,
-                        display = "${state.settings.dailyGoalMinutes} min",
-                        onValueChange = { onDailyGoalChange(it.toInt()) },
+                    TimeSettingTile(
+                        label = "検知タイミング",
+                        minutes = detectionMinutes,
+                        minMinutes = 1,
+                        maxMinutes = 30,
+                        onCommitMinutes = onDetectionMinutesChange,
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
         }
         item {
-            SectionCard(title = "権限", subtitle = "時間設定の下で確認") {
+            SectionCard(title = "権限", subtitle = "") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PermissionRow("Accessibility Service", state.permissions.accessibility, onOpenAccessibilitySettings)
-                    PermissionRow("Usage Stats", state.permissions.usageStats, onOpenUsageSettings)
-                    PermissionRow("MediaSession Listener", state.permissions.mediaSessionListener, onOpenMediaSessionSettings)
-                    PermissionRow("Notifications", state.permissions.notifications, onOpenNotificationSettings)
-                    OutlinedButton(onClick = onRequestNotificationPermission) {
-                        Text("通知権限を再リクエスト")
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PermissionGridTile(
+                            title = "操作補助",
+                            granted = state.permissions.accessibility,
+                            onClick = onOpenAccessibilitySettings,
+                            modifier = Modifier.weight(1f),
+                        )
+                        PermissionGridTile(
+                            title = "使用状況",
+                            granted = state.permissions.usageStats,
+                            onClick = onOpenUsageSettings,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PermissionGridTile(
+                            title = "メディア情報",
+                            granted = state.permissions.mediaSessionListener,
+                            onClick = onOpenMediaSessionSettings,
+                            modifier = Modifier.weight(1f),
+                        )
+                        PermissionGridTile(
+                            title = "通知",
+                            granted = state.permissions.notifications,
+                            onClick = onOpenNotificationSettings,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }
@@ -1059,31 +1057,96 @@ private fun PermissionRow(title: String, granted: Boolean, onClick: () -> Unit) 
 }
 
 @Composable
-private fun SettingSlider(
+private fun TimeSettingTile(
     label: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    steps: Int,
-    display: String,
-    onValueChange: (Float) -> Unit,
+    minutes: Int,
+    minMinutes: Int,
+    maxMinutes: Int,
+    onCommitMinutes: (Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    var input by remember(minutes) { mutableStateOf(minutes.toString()) }
+    fun commitInput() {
+        val parsed = input.toIntOrNull() ?: return
+        val clamped = parsed.coerceIn(minMinutes, maxMinutes)
+        if (clamped != minutes) onCommitMinutes(clamped)
+        input = clamped.toString()
+    }
+
+    Card(
+        modifier = modifier
+            .heightIn(min = 150.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, fontWeight = FontWeight.SemiBold)
-            Text(display, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFFF4E8))))
+                .border(1.dp, Color(0xFFFF8C00), RoundedCornerShape(16.dp))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(label, fontWeight = FontWeight.SemiBold, color = Color.Black)
+            OutlinedTextField(
+                value = input,
+                onValueChange = { next ->
+                    if (next.all { it.isDigit() }) {
+                        input = next
+                    }
+                },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                ),
+                label = { Text("設定", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                suffix = { Text("分", fontWeight = FontWeight.ExtraBold) },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { commitInput() },
+                ),
+            )
+            TextButton(onClick = { commitInput() }) { Text("設定", fontWeight = FontWeight.Bold) }
         }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = valueRange,
-            steps = steps,
-        )
+    }
+}
+
+@Composable
+private fun PermissionGridTile(
+    title: String,
+    granted: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFFF4E8))))
+                .border(1.dp, Color(0xFFFF8C00), RoundedCornerShape(16.dp))
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(title, fontWeight = FontWeight.SemiBold, color = Color.Black, maxLines = 1)
+            Text(
+                text = if (granted) "設定済み" else "未設定",
+                color = if (granted) Color(0xFF23A26D) else Color(0xFF666666),
+                maxLines = 1,
+            )
+            OutlinedButton(onClick = onClick) {
+                Text("開く")
+            }
+        }
     }
 }
 

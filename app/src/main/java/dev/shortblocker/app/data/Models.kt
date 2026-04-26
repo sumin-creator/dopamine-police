@@ -415,7 +415,7 @@ enum class DemoPreset(
             sessionMinutes = 14,
             relaunchCount = 2,
             swipeBurst = 4,
-            dwellSeconds = 26,
+            dwellSeconds = 24,
             reentryAfterWarning = true,
             keywords = listOf("Shorts"),
             uiFeatures = listOf(
