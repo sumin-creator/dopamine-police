@@ -32,26 +32,6 @@ class ShortblockerNotificationController(private val context: Context) {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
             .setContentIntent(goalIntent())
-            .addAction(
-                0,
-                context.getString(R.string.notification_stop),
-                actionIntent(NotificationActionReceiver.ACTION_STOP),
-            )
-            .addAction(
-                0,
-                context.getString(R.string.notification_extend),
-                actionIntent(NotificationActionReceiver.ACTION_EXTEND),
-            )
-            .addAction(
-                0,
-                context.getString(R.string.notification_ignore),
-                actionIntent(NotificationActionReceiver.ACTION_IGNORE),
-            )
-            .addAction(
-                0,
-                context.getString(R.string.notification_goal),
-                goalIntent(),
-            )
             .build()
 
         if (!canPostNotifications()) {
@@ -84,18 +64,6 @@ class ShortblockerNotificationController(private val context: Context) {
             description = context.getString(R.string.notification_channel_description)
         }
         manager.createNotificationChannel(channel)
-    }
-
-    private fun actionIntent(action: String): PendingIntent {
-        val intent = Intent(context, NotificationActionReceiver::class.java).apply {
-            this.action = action
-        }
-        return PendingIntent.getBroadcast(
-            context,
-            action.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
     }
 
     private fun goalIntent(): PendingIntent {
