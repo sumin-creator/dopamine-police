@@ -168,7 +168,7 @@ object AppStateJsonCodec {
 
     private fun decodeSessionLogs(array: JSONArray?): List<SessionLog> {
         if (array == null) {
-            return AppState.seedLogs()
+            return emptyList()
         }
 
         val logs = buildList {
@@ -192,7 +192,7 @@ object AppStateJsonCodec {
             }
         }
 
-        return logs.ifEmpty { AppState.seedLogs() }
+        return logs.filterNot { it.source == "seed" }
     }
 
     private fun JSONArray?.toStringList(): List<String> {

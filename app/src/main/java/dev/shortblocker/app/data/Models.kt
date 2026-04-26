@@ -324,7 +324,7 @@ data class AppState(
     val cooldownUntilEpochMillis: Long = 0L,
     val foregroundAppName: String = "未取得",
     val foregroundPackageName: String = "",
-    val sessionLogs: List<SessionLog> = seedLogs(),
+    val sessionLogs: List<SessionLog> = emptyList(),
 
 
     val dailyShortsWatchSeconds: Long = 0L,
@@ -356,52 +356,6 @@ data class AppState(
         )
     }
 
-    companion object {
-        fun seedLogs(now: Long = System.currentTimeMillis()): List<SessionLog> {
-            val hour = 60 * 60 * 1000L
-            return listOf(
-                SessionLog(
-                    id = "seed-1",
-                    timestampStartEpochMillis = now - 2 * hour,
-                    timestampEndEpochMillis = now - 2 * hour + 13 * 60 * 1000L,
-                    appName = "TikTok",
-                    uiScore = 92,
-                    triggeredWarning = true,
-                    warningLevel = WarningLevel.STRONG,
-                    userAction = UserAction.STOP,
-                    timeBand = TimeBand.LATE_NIGHT,
-                    savedMinutes = 14,
-                    source = "seed",
-                ),
-                SessionLog(
-                    id = "seed-2",
-                    timestampStartEpochMillis = now - 6 * hour,
-                    timestampEndEpochMillis = now - 6 * hour + 8 * 60 * 1000L,
-                    appName = "Instagram",
-                    uiScore = 67,
-                    triggeredWarning = true,
-                    warningLevel = WarningLevel.MEDIUM,
-                    userAction = UserAction.EXTEND,
-                    timeBand = TimeBand.EVENING,
-                    savedMinutes = 2,
-                    source = "seed",
-                ),
-                SessionLog(
-                    id = "seed-3",
-                    timestampStartEpochMillis = now - 13 * hour,
-                    timestampEndEpochMillis = now - 13 * hour + 5 * 60 * 1000L,
-                    appName = "YouTube",
-                    uiScore = 58,
-                    triggeredWarning = true,
-                    warningLevel = WarningLevel.LIGHT,
-                    userAction = UserAction.IGNORE,
-                    timeBand = TimeBand.FOCUS,
-                    savedMinutes = 0,
-                    source = "seed",
-                ),
-            )
-        }
-    }
 }
 
 enum class DemoPreset(
