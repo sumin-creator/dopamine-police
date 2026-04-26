@@ -1033,7 +1033,7 @@ private fun MonitorScreen(
                     TimeSettingTile(
                         label = "1日の目標",
                         minutes = goalMinutes,
-                        minMinutes = 10,
+                        minMinutes = 1,
                         maxMinutes = 180,
                         onCommitMinutes = onDailyGoalChange,
                         modifier = Modifier.weight(1f),
