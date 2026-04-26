@@ -72,6 +72,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -231,17 +232,15 @@ fun ShortblockerApp(
                     titleContentColor = Color(0xFF2D2018),
                 ),
                 title = {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.logo),
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp),
-                        )
-                        Text("ドーパミン警察", fontWeight = FontWeight.ExtraBold)
-                    }
+                    DopaminePoliceTitle()
+                },
+                modifier = Modifier.drawBehind {
+                    drawLine(
+                        color = Color(0xFFE4DED7),
+                        start = Offset(0f, size.height),
+                        end = Offset(size.width, size.height),
+                        strokeWidth = 1.dp.toPx(),
+                    )
                 },
             )
         },
@@ -252,15 +251,16 @@ fun ShortblockerApp(
                 tonalElevation = 0.dp,
             ) {
                 for (tab in AppTab.entries) {
+                    val selectedAccent = if (tab == AppTab.DASHBOARD) Color(0xFFFF7A00) else Color(0xFF8E78D9)
                     NavigationBarItem(
                         selected = currentTab == tab,
                         onClick = { currentTab = tab },
                         icon = tab.icon,
-                        label = { Text(tab.title) },
+                        label = { Text(tab.title, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color(0xFFFF7A00),
-                            selectedTextColor = Color(0xFFFF7A00),
-                            indicatorColor = Color(0xFFFFE4C8),
+                            selectedIconColor = selectedAccent,
+                            selectedTextColor = selectedAccent,
+                            indicatorColor = selectedAccent.copy(alpha = 0.16f),
                             unselectedIconColor = Color(0xFF6B6660),
                             unselectedTextColor = Color(0xFF6B6660),
                         ),
@@ -300,6 +300,26 @@ fun ShortblockerApp(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun DopaminePoliceTitle() {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.logo),
+            contentDescription = null,
+            modifier = Modifier.size(32.dp),
+        )
+        Text(
+            "ドーパミン警察",
+            color = Color(0xFF2D2018),
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 25.sp,
+        )
     }
 }
 
@@ -364,8 +384,19 @@ private fun DashboardTodayCard(todayMinutes: Int) {
                     Text("今日の視聴時間", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
                 }
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text(todayMinutes.toString(), color = Color(0xFFFF8800), fontWeight = FontWeight.ExtraBold, fontSize = 64.sp)
-                    Text("分", modifier = Modifier.padding(bottom = 8.dp), color = Color(0xFFFF8800), fontWeight = FontWeight.ExtraBold, fontSize = 36.sp)
+                    Text(
+                        todayMinutes.toString(),
+                        color = Color(0xFFFF8800),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 64.sp,
+                    )
+                    Text(
+                        "分",
+                        modifier = Modifier.padding(bottom = 3.dp),
+                        color = Color(0xFFFF8800),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 50.sp,
+                    )
                 }
             }
             Canvas(
