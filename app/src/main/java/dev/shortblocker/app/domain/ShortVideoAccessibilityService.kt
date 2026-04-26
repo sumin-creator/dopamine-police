@@ -78,9 +78,15 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
                 val rootNode = rootInActiveWindow
                 val activePackage = rootNode?.packageName?.toString().orEmpty()
+                if (activePackage.isBlank()) {
+                    logDetectionTimingSkipped("active-window-unavailable")
+                    runCatching { rootNode?.recycle() }
+                    continue
+                }
                 val isTargetApp = ServiceTarget.fromPackage(activePackage) != null
                 if (!isTargetApp) {
                     detectionTimingGate.reset()
+                    logDetectionTimingGateReset("non-target-app pkg=$activePackage")
                     runCatching { rootNode?.recycle() }
                     continue
                 }
@@ -108,13 +114,12 @@ class ShortVideoAccessibilityService : AccessibilityService() {
                         store.addWatchTime(3) // 3秒加算
                     }
 
-                    // 3. 再生中かつ閾値超えの累積時間が設定値を超えた場合のみ介入
+                    // 3. 閾値超えの累積時間が設定値を超えた場合のみ介入
                     handleDecision(
                         decision = decision,
                         shouldTrigger = shouldTriggerAfterDetectionTiming(
                             decision = decision,
                             state = state,
-                            requireActivePlayback = true,
                             isPlaying = isPlaying,
                         ),
                     )
@@ -154,7 +159,6 @@ class ShortVideoAccessibilityService : AccessibilityService() {
     private fun shouldTriggerAfterDetectionTiming(
         decision: DetectionDecision,
         state: AppState,
-        requireActivePlayback: Boolean = false,
         isPlaying: Boolean = true,
     ): Boolean {
         val snapshot = decision.snapshot
@@ -164,12 +168,11 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             !state.settings.alertsEnabled ||
             !state.settings.supportedApps.isEnabled(target) ||
             !state.permissions.canIntervene ||
-            snapshot.createdAtEpochMillis < state.cooldownUntilEpochMillis ||
-            (requireActivePlayback && !isPlaying)
+            snapshot.createdAtEpochMillis < state.cooldownUntilEpochMillis
 
         if (blocked) {
             detectionTimingGate.reset()
-            logDetectionTimingReset(decision, requireActivePlayback, isPlaying)
+            logDetectionTimingReset(decision, isPlaying)
             return false
         }
 
@@ -179,7 +182,7 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             now = snapshot.createdAtEpochMillis,
             requiredMillis = detectionDelayMillis(state),
         )
-        logDetectionTiming(decision, timing, requireActivePlayback, isPlaying)
+        logDetectionTiming(decision, timing, isPlaying)
         return timing.readyToTrigger
     }
 
@@ -190,7 +193,6 @@ class ShortVideoAccessibilityService : AccessibilityService() {
     private fun logDetectionTiming(
         decision: DetectionDecision,
         timing: DetectionTimingResult,
-        requireActivePlayback: Boolean,
         isPlaying: Boolean,
     ) {
         val accumulatedSeconds = timing.accumulatedMillis / 1000.0
@@ -200,7 +202,6 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             "timing pkg=${decision.snapshot.packageName}" +
                 " score=${decision.snapshot.score}" +
                 " candidate=${flag(decision.triggerCandidate)}" +
-                " playbackRequired=${flag(requireActivePlayback)}" +
                 " playing=${flag(isPlaying)}" +
                 " accumulated=${"%.1f".format(accumulatedSeconds)}s/${"%.1f".format(requiredSeconds)}s" +
                 " ready=${flag(timing.readyToTrigger)}",
@@ -209,7 +210,6 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
     private fun logDetectionTimingReset(
         decision: DetectionDecision,
-        requireActivePlayback: Boolean,
         isPlaying: Boolean,
     ) {
         Log.d(
@@ -217,9 +217,16 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             "timing reset pkg=${decision.snapshot.packageName}" +
                 " score=${decision.snapshot.score}" +
                 " candidate=${flag(decision.triggerCandidate)}" +
-                " playbackRequired=${flag(requireActivePlayback)}" +
                 " playing=${flag(isPlaying)}",
         )
+    }
+
+    private fun logDetectionTimingGateReset(reason: String) {
+        Log.d(TAG, "timing gate reset reason=$reason")
+    }
+
+    private fun logDetectionTimingSkipped(reason: String) {
+        Log.d(TAG, "timing skip reason=$reason")
     }
 
     private fun flag(value: Boolean): String = if (value) "Y" else "N"

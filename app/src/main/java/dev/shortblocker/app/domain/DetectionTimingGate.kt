@@ -11,7 +11,8 @@ internal class DetectionTimingGate(
 ) {
     private var currentPackageName: String = ""
     private var accumulatedMillis: Long = 0L
-    private var lastOverThresholdAtMillis: Long? = null
+    private var lastUpdatedAtMillis: Long? = null
+    private var wasOverThreshold: Boolean = false
     private var hasTriggered: Boolean = false
 
     @Synchronized
@@ -35,8 +36,17 @@ internal class DetectionTimingGate(
             resetForPackage(packageName)
         }
 
+        val lastUpdatedAt = lastUpdatedAtMillis
+        if (lastUpdatedAt != null && wasOverThreshold) {
+            val elapsedMillis = now - lastUpdatedAt
+            if (elapsedMillis > 0L) {
+                accumulatedMillis += elapsedMillis.coerceAtMost(maxCountableGapMillis)
+            }
+        }
+        lastUpdatedAtMillis = now
+        wasOverThreshold = overThreshold
+
         if (!overThreshold) {
-            lastOverThresholdAtMillis = null
             if (hasTriggered) {
                 resetForPackage(packageName)
             }
@@ -45,17 +55,6 @@ internal class DetectionTimingGate(
                 requiredMillis = normalizedRequiredMillis,
                 readyToTrigger = false,
             )
-        }
-
-        val lastOverThresholdAt = lastOverThresholdAtMillis
-        if (lastOverThresholdAt == null) {
-            lastOverThresholdAtMillis = now
-        } else {
-            val elapsedMillis = now - lastOverThresholdAt
-            if (elapsedMillis > 0L) {
-                accumulatedMillis += elapsedMillis.coerceAtMost(maxCountableGapMillis)
-            }
-            lastOverThresholdAtMillis = now
         }
 
         val readyToTrigger = !hasTriggered && accumulatedMillis >= normalizedRequiredMillis
@@ -73,14 +72,16 @@ internal class DetectionTimingGate(
     fun reset() {
         currentPackageName = ""
         accumulatedMillis = 0L
-        lastOverThresholdAtMillis = null
+        lastUpdatedAtMillis = null
+        wasOverThreshold = false
         hasTriggered = false
     }
 
     private fun resetForPackage(packageName: String) {
         currentPackageName = packageName
         accumulatedMillis = 0L
-        lastOverThresholdAtMillis = null
+        lastUpdatedAtMillis = null
+        wasOverThreshold = false
         hasTriggered = false
     }
 

@@ -30,8 +30,20 @@ class DetectionTimingGateTest {
         val secondSegment = gate.update(packageName, overThreshold = true, now = 80_000L, requiredMillis)
 
         assertEquals(30_000L, firstSegment.accumulatedMillis)
-        assertEquals(60_000L, secondSegment.accumulatedMillis)
+        assertEquals(70_000L, secondSegment.accumulatedMillis)
         assertTrue(secondSegment.readyToTrigger)
+    }
+
+    @Test
+    fun countsPreviousOverThresholdIntervalWhenCurrentSampleDropsBelowThreshold() {
+        val gate = DetectionTimingGate(maxCountableGapMillis = 120_000L)
+        val requiredMillis = 60_000L
+
+        gate.update(packageName, overThreshold = true, now = 0L, requiredMillis)
+        val dropped = gate.update(packageName, overThreshold = false, now = 20_000L, requiredMillis)
+
+        assertEquals(20_000L, dropped.accumulatedMillis)
+        assertFalse(dropped.readyToTrigger)
     }
 
     @Test
