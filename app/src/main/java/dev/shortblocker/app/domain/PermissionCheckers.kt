@@ -14,6 +14,13 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import dev.shortblocker.app.data.PermissionSnapshot
 
+object PermissionSnapshotBuilder {
+    fun build(
+        context: Context,
+        serviceClass: Class<out AccessibilityService>,
+    ): PermissionSnapshot = context.buildPermissionSnapshot(serviceClass)
+}
+
 fun Context.buildPermissionSnapshot(
     serviceClass: Class<out AccessibilityService>,
 ): PermissionSnapshot {
