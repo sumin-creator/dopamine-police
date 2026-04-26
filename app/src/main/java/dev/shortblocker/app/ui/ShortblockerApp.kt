@@ -86,6 +86,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.PlatformTextStyle
@@ -120,12 +121,11 @@ import dev.shortblocker.app.data.SessionLog
 import dev.shortblocker.app.data.UserAction
 import dev.shortblocker.app.data.WarningLevel
 import dev.shortblocker.app.domain.DetectionDecision
-import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.TextStyle
 import java.util.Locale
-
-private const val EPOCH_DAY_MILLIS = 24 * 60 * 60 * 1000L
+import kotlin.math.roundToInt
 
 private enum class AppTab(val route: String, val title: String, val icon: @Composable () -> Unit) {
     DASHBOARD("dashboard", "ホーム", { Icon(Icons.Outlined.Home, contentDescription = null) }),
@@ -738,9 +738,10 @@ private fun minutesTextStyle(fontSize: TextUnit) = ComposeTextStyle(
 @Composable
 private fun WeeklyUsageCard(state: AppState) {
     val weekly = weeklyShortsWatchMinutes(state)
-    val maxMinutes = (weekly.maxOfOrNull { it.second } ?: 1).coerceAtLeast(1)
-    val axisMax = roundUpAxisMinutes(maxMinutes)
-    val axisStep = (axisMax / 4).coerceAtLeast(15)
+    val axisScale = buildAxisScale(weekly.maxOfOrNull { it.second } ?: 0)
+    val chartHeight = 220.dp
+    val chartVerticalPadding = 24.dp
+    val chartFrameHeight = chartHeight + chartVerticalPadding * 2
     Card(
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -769,39 +770,157 @@ private fun WeeklyUsageCard(state: AppState) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(180.dp),
+                    .height(chartFrameHeight + 48.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
+                ChartYAxisLabels(
+                    axisScale = axisScale,
+                    chartHeight = chartHeight,
+                    chartVerticalPadding = chartVerticalPadding,
+                    modifier = Modifier
+                        .height(chartFrameHeight)
+                        .width(42.dp),
+                )
                 Column(
-                    modifier = Modifier.height(146.dp),
-                    verticalArrangement = Arrangement.SpaceBetween,
-                    horizontalAlignment = Alignment.End,
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
-                    for (step in 4 downTo 0) {
-                        Text("${axisStep * step}分", color = Color(0xFF55504B), fontSize = 12.sp, maxLines = 1)
-                    }
-                }
-                weekly.forEach { (label, minutes) ->
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Bottom,
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(chartFrameHeight),
                     ) {
-                        Text("${minutes}分", color = Color(0xFF3A332D), fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1)
-                        Box(
+                        ChartHorizontalGrid(
+                            axisScale = axisScale,
+                            chartHeight = chartHeight,
+                            chartVerticalPadding = chartVerticalPadding,
+                            modifier = Modifier.matchParentSize(),
+                        )
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height((128f * (minutes.toFloat() / axisMax)).dp.coerceAtLeast(5.dp))
-                                .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp))
-                                .background(Brush.verticalGradient(listOf(Color(0xFFFF9F1C), Color(0xFFFF7A00)))),
-                        )
-                        Text(label, color = Color(0xFF3A332D), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                .height(chartFrameHeight)
+                                .align(Alignment.TopStart),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            weekly.forEach { (_, minutes) ->
+                                val clampedMinutes = minutes.coerceIn(0, axisScale.axisMax)
+                                val barBaseY = chartVerticalPadding + chartTickY(axisScale.axisMin, axisScale, chartHeight)
+                                val zeroY = chartVerticalPadding + chartTickY(0, axisScale, chartHeight)
+                                val maxY = chartVerticalPadding + chartTickY(axisScale.axisMax, axisScale, chartHeight)
+                                val barHeight = (zeroY - maxY) * (clampedMinutes.toFloat() / axisScale.axisMax.toFloat())
+                                val barY = barBaseY - barHeight
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(chartFrameHeight),
+                                    contentAlignment = Alignment.TopCenter,
+                                ) {
+                                    if (minutes > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(barHeight)
+                                                .offset(y = barY)
+                                                .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp))
+                                                .background(Brush.verticalGradient(listOf(Color(0xFFFF9F1C), Color(0xFFFF7A00)))),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .offset(y = (-12).dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        weekly.forEach { (label, minutes) ->
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text("${minutes}分", color = Color(0xFF3A332D), fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1)
+                                Text(label, color = Color(0xFF3A332D), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ChartYAxisLabels(
+    axisScale: AxisScale,
+    chartHeight: Dp,
+    chartVerticalPadding: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val ticks = axisScale.tickValues.asReversed()
+    Layout(
+        modifier = modifier,
+        content = {
+            ticks.forEach { value ->
+                Text("${value}分", color = Color(0xFF55504B), fontSize = 12.sp, maxLines = 1)
+            }
+        },
+    ) { measurables, constraints ->
+        val placeables = measurables.map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
+        val width = constraints.maxWidth
+        val height = constraints.maxHeight
+        val chartHeightPx = chartHeight.roundToPx().toFloat()
+        val topPaddingPx = chartVerticalPadding.roundToPx()
+
+        layout(width, height) {
+            val labelLiftPx = 9.dp.roundToPx()
+            placeables.forEachIndexed { index, placeable ->
+                val value = ticks[index]
+                val tickY = (topPaddingPx + chartTickY(value, axisScale, chartHeightPx)).roundToInt() - labelLiftPx
+                val y = (tickY - placeable.height / 2).coerceIn(0, height - placeable.height)
+                placeable.placeRelative(width - placeable.width, y)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChartHorizontalGrid(
+    axisScale: AxisScale,
+    chartHeight: Dp,
+    chartVerticalPadding: Dp,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val chartHeightPx = chartHeight.toPx()
+        val topPaddingPx = chartVerticalPadding.toPx()
+        axisScale.gridValues
+            .filter { it < axisScale.axisMax }
+            .forEach { value ->
+            val y = topPaddingPx + chartTickY(value, axisScale, chartHeightPx)
+            drawLine(
+                color = Color(0x1AFF9800),
+                start = Offset(0f, y),
+                end = Offset(size.width, y),
+                strokeWidth = 1.dp.toPx(),
+            )
+        }
+    }
+}
+
+private fun chartTickY(value: Int, axisScale: AxisScale, chartHeightPx: Float): Float {
+    val axisRange = (axisScale.axisMax - axisScale.axisMin).coerceAtLeast(1)
+    return (axisScale.axisMax - value).toFloat() / axisRange.toFloat() * chartHeightPx
+}
+
+private fun chartTickY(value: Int, axisScale: AxisScale, chartHeight: Dp): Dp {
+    val axisRange = (axisScale.axisMax - axisScale.axisMin).coerceAtLeast(1)
+    return chartHeight * ((axisScale.axisMax - value).toFloat() / axisRange.toFloat())
 }
 
 private fun detectionSecondsToDisplayMinutes(seconds: Long): Int {
@@ -811,17 +930,18 @@ private fun detectionSecondsToDisplayMinutes(seconds: Long): Int {
 
 private fun weeklyShortsWatchMinutes(state: AppState): List<Pair<String, Int>> {
     val zone = ZoneId.systemDefault()
-    val todayEpochDays = System.currentTimeMillis() / EPOCH_DAY_MILLIS
+    val todayEpochDays = LocalDate.now(zone).toEpochDay()
     val byEpochDays = state.shortsWatchHistory
         .associate { it.epochDays to it.seconds }
         .toMutableMap()
     if (state.dailyShortsWatchSeconds > 0L) {
-        byEpochDays[state.lastResetDateEpochDays] = state.dailyShortsWatchSeconds
+        // Always treat in-memory daily usage as "today" for a rolling 7-day chart.
+        byEpochDays[todayEpochDays] = state.dailyShortsWatchSeconds
     }
 
     return (0..6).map { index ->
         val epochDays = todayEpochDays - 6L + index
-        val date = Instant.ofEpochMilli(epochDays * EPOCH_DAY_MILLIS).atZone(zone).toLocalDate()
+        val date = LocalDate.ofEpochDay(epochDays)
         val minutes = detectionSecondsToDisplayMinutes(byEpochDays[epochDays] ?: 0L)
         date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.JAPANESE) to minutes
     }
@@ -844,6 +964,31 @@ private fun roundUpAxisMinutes(value: Int): Int {
         else -> 60
     }
     return ((value + step - 1) / step) * step
+}
+
+private data class AxisScale(
+    val axisMin: Int,
+    val axisMax: Int,
+    val gridValues: List<Int>,
+    val tickValues: List<Int>,
+)
+
+private fun buildAxisScale(maxValue: Int): AxisScale {
+    return AxisScale(
+        axisMin = -15,
+        axisMax = 60,
+        gridValues = listOf(-15, 0, 15, 30, 45, 60),
+        tickValues = listOf(0, 15, 30, 45, 60),
+    )
+}
+
+private fun niceStep(value: Double): Int {
+    if (value <= 1.0) return 1
+    val candidates = listOf(1, 2, 5, 10, 15, 20, 25, 30, 50, 60, 100)
+    val magnitude = Math.pow(10.0, kotlin.math.floor(kotlin.math.log10(value)))
+    val normalized = value / magnitude
+    val base = candidates.firstOrNull { it >= normalized } ?: 10
+    return (base * magnitude).toInt().coerceAtLeast(1)
 }
 
 @Composable
