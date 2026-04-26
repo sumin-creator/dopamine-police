@@ -689,7 +689,7 @@ private fun DashboardMetricCard(
                     color = accent,
                     numberFontSize = 30.sp,
                     unitFontSize = 26.sp,
-                    unitOffsetY = (-3).dp,
+                    unitOffsetY = 0.dp,
                 )
             }
         }
