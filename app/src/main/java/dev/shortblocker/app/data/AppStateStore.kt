@@ -94,8 +94,7 @@ class AppStateStore(
 
     suspend fun addWatchTime(seconds: Int) {
         context.shortblockerDataStore.updateDataCompat { current ->
-            // 現在の日付（エポックからの経過日数）を計算
-            val currentDays = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
+            val currentDays = currentEpochDays()
 
             if (current.lastResetDateEpochDays != currentDays) {
                 // 日付が変わっていれば0にリセットしてから加算
@@ -174,18 +173,28 @@ class AppStateStore(
     private suspend fun normalizePersistedState() {
         context.shortblockerDataStore.updateDataCompat { current ->
             val filteredSessionLogs = current.sessionLogs.filterNot { it.source == "seed" }
-            if (current.settings.threshold == normalizedThreshold && filteredSessionLogs.size == current.sessionLogs.size) {
+            val currentDays = currentEpochDays()
+            val shouldResetDailyWatchTime = current.lastResetDateEpochDays != currentDays
+            if (
+                current.settings.threshold == normalizedThreshold &&
+                filteredSessionLogs.size == current.sessionLogs.size &&
+                !shouldResetDailyWatchTime
+            ) {
                 return@updateDataCompat current
             }
             val updated = current.copy(
                 settings = current.settings.copy(threshold = normalizedThreshold),
                 sessionLogs = filteredSessionLogs,
+                dailyShortsWatchSeconds = if (shouldResetDailyWatchTime) 0L else current.dailyShortsWatchSeconds,
+                lastResetDateEpochDays = if (shouldResetDailyWatchTime) currentDays else current.lastResetDateEpochDays,
             )
             updated.copy(
                 liveMonitor = updated.liveMonitor.copy(statusLabel = deriveStatus(updated)),
             )
         }
     }
+
+    private fun currentEpochDays(): Long = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
 
     private fun deriveStatus(
         state: AppState,

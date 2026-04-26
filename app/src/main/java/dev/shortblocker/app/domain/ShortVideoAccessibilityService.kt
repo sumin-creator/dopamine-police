@@ -109,12 +109,7 @@ class ShortVideoAccessibilityService : AccessibilityService() {
                 )
 
                 if (decision != null) {
-                    // 2. 動画が再生中で、かつ何らかの検知スコアがある場合のみ視聴時間を加算
-                    if (isPlaying && decision.snapshot.score > 0) {
-                        store.addWatchTime(3) // 3秒加算
-                    }
-
-                    // 3. 閾値超えの累積時間が設定値を超えた場合のみ介入
+                    // 2. 閾値超えの累積時間が設定値を超えた場合のみ介入
                     handleDecision(
                         decision = decision,
                         shouldTrigger = shouldTriggerAfterDetectionTiming(
@@ -191,6 +186,7 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             now = snapshot.createdAtEpochMillis,
             requiredMillis = detectionDelayMillis(state),
         )
+        recordDetectedShortsTime(timing.addedMillis)
         logDetectionTiming(decision, timing, isPlaying)
         return timing.readyToTrigger
     }
@@ -236,10 +232,19 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
     private fun pauseDetectionTiming(reason: String, now: Long) {
         val timing = detectionTimingGate.pause(now)
+        recordDetectedShortsTime(timing.addedMillis)
         Log.d(
             TAG,
             "timing paused reason=$reason accumulated=${"%.1f".format(timing.accumulatedMillis / 1000.0)}s",
         )
+    }
+
+    private fun recordDetectedShortsTime(addedMillis: Long) {
+        val addedSeconds = (addedMillis / 1000L).toInt()
+        if (addedSeconds <= 0) return
+        application.container.applicationScope.launch {
+            application.container.store.addWatchTime(addedSeconds)
+        }
     }
 
     private fun logDetectionTimingSkipped(reason: String) {

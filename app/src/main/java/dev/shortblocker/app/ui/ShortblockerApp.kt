@@ -348,7 +348,7 @@ private fun DopaminePoliceTitle() {
 
 @Composable
 private fun DashboardScreen(state: AppState) {
-    val todayMinutes = todayUsageMinutes(state.sessionLogs)
+    val todayMinutes = detectionSecondsToDisplayMinutes(state.dailyShortsWatchSeconds)
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -808,6 +808,11 @@ private fun todayUsageMinutes(sessionLogs: List<SessionLog>): Int {
     return sessionLogs
         .filter { Instant.ofEpochMilli(it.timestampEndEpochMillis).atZone(ZoneId.systemDefault()).toLocalDate() == today }
         .sumOf { ((it.timestampEndEpochMillis - it.timestampStartEpochMillis) / 60_000L).toInt().coerceAtLeast(1) }
+}
+
+private fun detectionSecondsToDisplayMinutes(seconds: Long): Int {
+    if (seconds <= 0L) return 0
+    return ((seconds + 59L) / 60L).toInt()
 }
 
 private fun weeklyUsageMinutes(sessionLogs: List<SessionLog>): List<Pair<String, Int>> {
