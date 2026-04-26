@@ -56,4 +56,4 @@ app/build/outputs/apk/debug/app-debug.apk
 ./gradlew --no-daemon assembleDebug
 ```
 
-good
+縦
