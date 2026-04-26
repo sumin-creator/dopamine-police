@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -79,6 +80,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -487,6 +489,57 @@ private fun HomeArtCard() {
                     .align(Alignment.BottomStart)
                     .offset(x = homeGifVisibleOffset)
                     .size(width = homeGifWidth, height = homeGifHeight),
+            )
+            HomeSpeechBubble(
+                text = "君の人生、ショート動画並みに中身スカスカになっちゃうわよ？",
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(x = 12.dp, y = (-8).dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeSpeechBubble(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    val bubbleBorder = Color(0xFFEDE8E0)
+    Box(
+        modifier = modifier.widthIn(max = 180.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Canvas(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .size(width = 14.dp, height = 20.dp),
+        ) {
+            val tail = Path().apply {
+                moveTo(0f, size.height / 2f)
+                lineTo(size.width, 0f)
+                lineTo(size.width, size.height)
+                close()
+            }
+            drawPath(tail, color = Color.White)
+            drawPath(tail, color = bubbleBorder, style = Stroke(width = 1.5f))
+        }
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .border(1.dp, bubbleBorder, RoundedCornerShape(16.dp))
+                .widthIn(max = 168.dp),
+        ) {
+            Text(
+                text = text,
+                color = Color(0xFF3C3027),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                lineHeight = 18.sp,
+                modifier = Modifier.padding(start = 12.dp, top = 10.dp, end = 6.dp, bottom = 10.dp),
             )
         }
     }
