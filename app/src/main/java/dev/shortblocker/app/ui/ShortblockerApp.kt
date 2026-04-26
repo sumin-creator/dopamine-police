@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -79,10 +80,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.PlatformTextStyle
@@ -354,7 +357,12 @@ private fun DashboardScreen(state: AppState) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item { DashboardTodayCard(todayMinutes = todayMinutes) }
-        item { HomeArtCard() }
+        item {
+            HomeArtCard(
+                todayMinutes = todayMinutes,
+                dailyGoalMinutes = state.settings.dailyGoalMinutes,
+            )
+        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 DashboardMetricCard(
@@ -425,8 +433,34 @@ private fun DashboardTodayCard(todayMinutes: Int) {
     }
 }
 
+private val homeSpeechBubbleMessagesOverGoal = listOf(
+    "ちょっと、いつまで見てんのよ。脳が腐るわよ？",
+    "君の人生、ショート動画並みに中身スカスカになっちゃうわよ？",
+    "そんなに動画が大事なら、一生スマホと仲良くしてれば？",
+    "制限時間、とっくに過ぎてるわよ。約束も守れないなんて、子供以下ね。",
+)
+
+private val homeSpeechBubbleMessagesWithinGoal = listOf(
+    "ショート動画なんかより、私と話してる方が落ち着くでしょ？",
+    "動画見て誤魔化さなくても、私がそばにいてあげるから大丈夫よ。",
+    "そんなにショート動画が恋しいの？ 今は目の前のことに集中！頑張って！",
+    "ショート動画見てる暇があるなら、机に向かって勉強しなさいよ。",
+)
+
 @Composable
-private fun HomeArtCard() {
+private fun HomeArtCard(
+    todayMinutes: Int,
+    dailyGoalMinutes: Int,
+) {
+    val isOverGoal = todayMinutes > dailyGoalMinutes
+    val gifAsset = if (isOverGoal) "home.gif" else "ok.gif"
+    val speechText = remember(isOverGoal) {
+        if (isOverGoal) {
+            homeSpeechBubbleMessagesOverGoal.random()
+        } else {
+            homeSpeechBubbleMessagesWithinGoal.random()
+        }
+    }
     val context = LocalContext.current
     val gifImageLoader = remember(context) {
         ImageLoader.Builder(context)
@@ -476,7 +510,7 @@ private fun HomeArtCard() {
             )
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data("file:///android_asset/home.gif")
+                    .data("file:///android_asset/$gifAsset")
                     .repeatCount(-1)
                     .crossfade(false)
                     .build(),
@@ -488,7 +522,82 @@ private fun HomeArtCard() {
                     .offset(x = homeGifVisibleOffset)
                     .size(width = homeGifWidth, height = homeGifHeight),
             )
+            HomeSpeechBubble(
+                text = speechText,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(x = 12.dp, y = (-8).dp),
+            )
         }
+    }
+}
+
+@Composable
+private fun HomeSpeechBubble(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    val bubbleBorder = Color(0xFFC4BFBA)
+    val tailWidth = 14.dp
+    val bubbleRadius = 16.dp
+    Box(
+        modifier = modifier
+            .widthIn(max = 180.dp)
+            .drawBehind {
+                val bubblePath = speechBubblePath(
+                    size = size,
+                    tailWidth = tailWidth.toPx(),
+                    tailHeight = 22.dp.toPx(),
+                    radius = bubbleRadius.toPx(),
+                )
+                translate(top = 2.dp.toPx()) {
+                    drawPath(bubblePath, color = Color.Black.copy(alpha = 0.10f))
+                }
+                translate(top = 4.dp.toPx()) {
+                    drawPath(bubblePath, color = Color.Black.copy(alpha = 0.04f))
+                }
+                drawPath(bubblePath, color = Color.White)
+                drawPath(bubblePath, color = bubbleBorder, style = Stroke(width = 1.dp.toPx()))
+            },
+    ) {
+        Text(
+            text = text,
+            color = Color(0xFF3C3027),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            lineHeight = 18.sp,
+            modifier = Modifier.padding(start = tailWidth + 12.dp, top = 10.dp, end = 6.dp, bottom = 10.dp),
+        )
+    }
+}
+
+private fun speechBubblePath(
+    size: Size,
+    tailWidth: Float,
+    tailHeight: Float,
+    radius: Float,
+): Path {
+    val left = tailWidth
+    val right = size.width
+    val bottom = size.height
+    val centerY = size.height * 0.54f
+    val halfTail = tailHeight / 2f
+    val roundedRadius = radius.coerceAtMost((right - left) / 2f).coerceAtMost(bottom / 2f)
+
+    return Path().apply {
+        moveTo(left + roundedRadius, 0f)
+        lineTo(right - roundedRadius, 0f)
+        quadraticTo(right, 0f, right, roundedRadius)
+        lineTo(right, bottom - roundedRadius)
+        quadraticTo(right, bottom, right - roundedRadius, bottom)
+        lineTo(left + roundedRadius, bottom)
+        quadraticTo(left, bottom, left, bottom - roundedRadius)
+        lineTo(left, centerY + halfTail)
+        lineTo(0f, centerY)
+        lineTo(left, centerY - halfTail)
+        lineTo(left, roundedRadius)
+        quadraticTo(left, 0f, left + roundedRadius, 0f)
+        close()
     }
 }
 
