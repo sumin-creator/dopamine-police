@@ -30,18 +30,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.PsychologyAlt
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -106,7 +109,7 @@ import java.util.Locale
 
 private enum class AppTab(val route: String, val title: String, val icon: @Composable () -> Unit) {
     DASHBOARD("dashboard", "ホーム", { Icon(Icons.Outlined.Home, contentDescription = null) }),
-    MONITOR("monitor", "設定", { Icon(Icons.Outlined.Tune, contentDescription = null) });
+    MONITOR("monitor", "設定", { Icon(Icons.Outlined.Settings, contentDescription = null) });
 
     companion object {
         fun fromRoute(route: String?): AppTab =
@@ -245,7 +248,7 @@ fun ShortblockerApp(
         bottomBar = {
             NavigationBar(
                 modifier = Modifier.navigationBarsPadding(),
-                containerColor = Color.White,
+                containerColor = Color(0xFFFFFBF6),
                 tonalElevation = 0.dp,
             ) {
                 for (tab in AppTab.entries) {
@@ -255,9 +258,9 @@ fun ShortblockerApp(
                         icon = tab.icon,
                         label = { Text(tab.title) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color(0xFFFF7900),
-                            selectedTextColor = Color(0xFFFF7900),
-                            indicatorColor = Color(0xFFFFEDD9),
+                            selectedIconColor = Color(0xFFFF7A00),
+                            selectedTextColor = Color(0xFFFF7A00),
+                            indicatorColor = Color(0xFFFFE4C8),
                             unselectedIconColor = Color(0xFF6B6660),
                             unselectedTextColor = Color(0xFF6B6660),
                         ),
@@ -519,10 +522,10 @@ private fun DashboardMetricCard(
                     )
                     Text(
                         text = "分",
-                        modifier = Modifier.padding(bottom = 3.dp),
+                        modifier = Modifier.padding(bottom = 1.dp),
                         color = accent,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = 20.sp,
+                        fontSize = 30.sp,
                         maxLines = 1,
                     )
                 }
@@ -810,12 +813,20 @@ private fun MonitorScreen(
     val goalMinutes = state.settings.dailyGoalMinutes
     val detectionMinutes = state.settings.cooldownMinutes
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFFFFCF7)),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            SectionCard(title = "時間設定", subtitle = "") {
+            SettingsSectionCard(
+                title = "時間設定",
+                icon = Icons.Outlined.AccessTime,
+                accent = Color(0xFFFF8A00),
+                soft = Color(0xFFFFF7ED),
+                border = Color(0xFFFFC37D),
+            ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TimeSettingTile(
                         label = "1日の目標",
@@ -837,32 +848,42 @@ private fun MonitorScreen(
             }
         }
         item {
-            SectionCard(title = "権限", subtitle = "") {
+            SettingsSectionCard(
+                title = "権限",
+                icon = Icons.Outlined.Shield,
+                accent = Color(0xFF8E78D9),
+                soft = Color(0xFFFBF8FF),
+                border = Color(0xFFD8C9FF),
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         PermissionGridTile(
                             title = "操作補助",
                             granted = state.permissions.accessibility,
+                            icon = Icons.Outlined.PsychologyAlt,
                             onClick = onOpenAccessibilitySettings,
                             modifier = Modifier.weight(1f),
                         )
                         PermissionGridTile(
                             title = "使用状況",
                             granted = state.permissions.usageStats,
+                            icon = Icons.Outlined.Analytics,
                             onClick = onOpenUsageSettings,
                             modifier = Modifier.weight(1f),
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         PermissionGridTile(
-                            title = "メディア情報",
+                            title = "メディア",
                             granted = state.permissions.mediaSessionListener,
+                            icon = Icons.Outlined.Dashboard,
                             onClick = onOpenMediaSessionSettings,
                             modifier = Modifier.weight(1f),
                         )
                         PermissionGridTile(
                             title = "通知",
                             granted = state.permissions.notifications,
+                            icon = Icons.Outlined.NotificationsActive,
                             onClick = onOpenNotificationSettings,
                             modifier = Modifier.weight(1f),
                         )
@@ -870,6 +891,68 @@ private fun MonitorScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsSectionCard(
+    title: String,
+    icon: ImageVector,
+    accent: Color,
+    soft: Color,
+    border: Color,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.White, soft)))
+                .border(1.dp, border, RoundedCornerShape(20.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (icon == Icons.Outlined.Shield) {
+                    PoliceShieldMark(
+                        modifier = Modifier.size(30.dp),
+                        accent = accent,
+                    )
+                } else {
+                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(28.dp))
+                }
+                Text(title, color = Color(0xFF2D2520), fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
+            }
+            content()
+        }
+    }
+}
+
+@Composable
+private fun PoliceShieldMark(modifier: Modifier = Modifier, accent: Color) {
+    Canvas(modifier = modifier) {
+        val width = size.width
+        val height = size.height
+        val shieldPath = androidx.compose.ui.graphics.Path().apply {
+            moveTo(width * 0.5f, height * 0.06f)
+            lineTo(width * 0.88f, height * 0.2f)
+            lineTo(width * 0.78f, height * 0.67f)
+            quadraticTo(width * 0.66f, height * 0.86f, width * 0.5f, height * 0.96f)
+            quadraticTo(width * 0.34f, height * 0.86f, width * 0.22f, height * 0.67f)
+            lineTo(width * 0.12f, height * 0.2f)
+            close()
+        }
+        drawPath(shieldPath, color = accent.copy(alpha = 0.18f))
+        drawPath(shieldPath, color = accent, style = Stroke(width = 3f))
+        drawCircle(color = accent.copy(alpha = 0.9f), radius = width * 0.12f, center = Offset(width * 0.5f, height * 0.36f))
+        drawLine(accent, Offset(width * 0.28f, height * 0.58f), Offset(width * 0.72f, height * 0.58f), strokeWidth = 3f)
+        drawLine(accent, Offset(width * 0.36f, height * 0.72f), Offset(width * 0.64f, height * 0.72f), strokeWidth = 3f)
+        drawCircle(color = Color.White.copy(alpha = 0.95f), radius = width * 0.035f, center = Offset(width * 0.34f, height * 0.34f))
+        drawCircle(color = Color.White.copy(alpha = 0.95f), radius = width * 0.035f, center = Offset(width * 0.66f, height * 0.34f))
     }
 }
 
@@ -1152,20 +1235,21 @@ private fun TimeSettingTile(
 
     Card(
         modifier = modifier
-            .heightIn(min = 150.dp),
+            .heightIn(min = 164.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFFF4E8))))
-                .border(1.dp, Color(0xFFFF8C00), RoundedCornerShape(16.dp))
-                .padding(12.dp),
+                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFFFCF8))))
+                .border(1.dp, Color(0xFFFFB15E), RoundedCornerShape(16.dp))
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(label, fontWeight = FontWeight.SemiBold, color = Color.Black)
+            Text(label, fontWeight = FontWeight.ExtraBold, color = Color(0xFF2D2520), fontSize = 16.sp)
             OutlinedTextField(
                 value = input,
                 onValueChange = { next ->
@@ -1174,12 +1258,14 @@ private fun TimeSettingTile(
                     }
                 },
                 singleLine = true,
+                shape = RoundedCornerShape(14.dp),
                 textStyle = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFFF8A00),
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.ExtraBold,
                     textAlign = TextAlign.Center,
                 ),
-                label = { Text("設定", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
-                suffix = { Text("分", fontWeight = FontWeight.ExtraBold) },
+                suffix = { Text("分", color = Color(0xFFFF8A00), fontWeight = FontWeight.ExtraBold, fontSize = 22.sp) },
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number,
                     imeAction = ImeAction.Done,
@@ -1188,7 +1274,18 @@ private fun TimeSettingTile(
                     onDone = { commitInput() },
                 ),
             )
-            TextButton(onClick = { commitInput() }) { Text("設定", fontWeight = FontWeight.Bold) }
+            Button(
+                onClick = { commitInput() },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF8A00), contentColor = Color.White),
+                shape = CircleShape,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp),
+            ) {
+                Icon(Icons.Outlined.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("設定", fontWeight = FontWeight.ExtraBold)
+            }
         }
     }
 }
@@ -1197,31 +1294,57 @@ private fun TimeSettingTile(
 private fun PermissionGridTile(
     title: String,
     granted: Boolean,
+    icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = modifier,
+        modifier = modifier.height(96.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
-        Column(
+        Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFFF4E8))))
-                .border(1.dp, Color(0xFFFF8C00), RoundedCornerShape(16.dp))
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFFCFAFF))))
+                .border(1.dp, Color(0xFFD8C9FF), RoundedCornerShape(16.dp))
+                .padding(horizontal = 6.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, fontWeight = FontWeight.SemiBold, color = Color.Black, maxLines = 1)
-            Text(
-                text = if (granted) "設定済み" else "未設定",
-                color = if (granted) Color(0xFF23A26D) else Color(0xFF666666),
-                maxLines = 1,
-            )
-            OutlinedButton(onClick = onClick) {
-                Text("開く")
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFEDE5FF)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = Color(0xFF8E78D9), modifier = Modifier.size(21.dp))
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(title, fontWeight = FontWeight.ExtraBold, color = Color(0xFF2D2520), maxLines = 1, fontSize = 15.sp)
+                Text(
+                    text = if (granted) "設定済み" else "未設定",
+                    color = if (granted) Color(0xFF23A26D) else Color(0xFF776E88),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    fontSize = 13.sp,
+                )
+                OutlinedButton(
+                    onClick = onClick,
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .height(32.dp)
+                        .width(76.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text("開く", fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                }
             }
         }
     }
