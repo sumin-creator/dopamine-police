@@ -899,9 +899,7 @@ private fun ChartHorizontalGrid(
     Canvas(modifier = modifier) {
         val chartHeightPx = chartHeight.toPx()
         val topPaddingPx = chartVerticalPadding.toPx()
-        axisScale.gridValues
-            .filter { it < axisScale.axisMax }
-            .forEach { value ->
+        axisScale.gridValues.filter { it < axisScale.axisMax }.forEach { value ->
             val y = topPaddingPx + chartTickY(value, axisScale, chartHeightPx)
             drawLine(
                 color = Color(0x1AFF9800),
@@ -969,28 +967,26 @@ private fun roundUpAxisMinutes(value: Int): Int {
 private data class AxisScale(
     val axisMin: Int,
     val axisMax: Int,
+    val axisStep: Int,
     val gridValues: List<Int>,
     val tickValues: List<Int>,
 )
 
 private fun buildAxisScale(maxValue: Int): AxisScale {
-    if (maxValue > 60) {
-        val axisMax = ((maxValue + 59) / 60) * 60
-        val tickValues = (0..axisMax step 60).toList()
-        return AxisScale(
-            axisMin = -60,
-            axisMax = axisMax,
-            gridValues = listOf(-60) + tickValues,
-            tickValues = tickValues,
-        )
-    }
-
+    val axisStep = if (maxValue > 60) 60 else 15
+    val axisMax = roundUpToStep(maxValue, axisStep).coerceAtLeast(axisStep * 4)
+    val tickValues = (0..axisMax step axisStep).toList()
     return AxisScale(
-        axisMin = -15,
-        axisMax = 60,
-        gridValues = listOf(-15, 0, 15, 30, 45, 60),
-        tickValues = listOf(0, 15, 30, 45, 60),
+        axisMin = -axisStep,
+        axisMax = axisMax,
+        axisStep = axisStep,
+        gridValues = listOf(-axisStep) + tickValues,
+        tickValues = tickValues,
     )
+}
+
+private fun roundUpToStep(value: Int, step: Int): Int {
+    return ((value + step - 1) / step) * step
 }
 
 private fun niceStep(value: Double): Int {
