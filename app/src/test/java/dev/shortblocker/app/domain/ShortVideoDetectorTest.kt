@@ -166,6 +166,111 @@ class ShortVideoDetectorTest {
     }
 
     @Test
+    fun mobileShortsPlaybackStructureCanTriggerWithoutShortsText() {
+        val base = 100_000L
+        detector.processObservedEvent(
+            observedEvent(nodes = mobileShortsPlayerNodes(includeBottomShortsTab = false)),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base,
+        )
+
+        val decision = detector.processObservedEvent(
+            observedEvent(nodes = mobileShortsPlayerNodes(includeBottomShortsTab = false)),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 20 * 60_000L,
+        )!!
+
+        assertTrue(decision.snapshot.keywordHits.isNotEmpty())
+        assertTrue(decision.snapshot.keywordHits.none { it.equals("Shorts", ignoreCase = true) })
+        assertTrue(UiFeature.VIDEO_STRUCTURE in decision.snapshot.uiFeatures)
+        assertTrue(UiFeature.ACTION_RAIL in decision.snapshot.uiFeatures)
+        assertTrue(decision.snapshot.score >= settings.threshold)
+        assertTrue(decision.shouldTrigger)
+    }
+
+    @Test
+    fun playbackTickKeepsShortsScoreRisingWithoutNewAccessibilityEvidence() {
+        val base = 100_000L
+        detector.processObservedEvent(
+            observedEvent(nodes = mobileShortsPlayerNodes(includeBottomShortsTab = false)),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            mediaPlaybackActive = true,
+            now = base,
+        )
+
+        val decision = detector.processPlaybackTick(
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            mediaPlaybackActive = null,
+            now = base + 20 * 60_000L,
+        )!!
+
+        assertTrue(decision.snapshot.keywordHits.isNotEmpty())
+        assertTrue(UiFeature.VIDEO_STRUCTURE in decision.snapshot.uiFeatures)
+        assertTrue(UiFeature.ACTION_RAIL in decision.snapshot.uiFeatures)
+        assertTrue(decision.snapshot.sessionMinutes >= 20)
+        assertTrue(decision.snapshot.dwellSeconds >= 20)
+        assertTrue(decision.snapshot.score >= settings.threshold)
+        assertTrue(decision.shouldTrigger)
+    }
+
+    @Test
+    fun playbackTickDoesNotCreateYoutubeSessionWithoutPriorShortsEvidence() {
+        val decision = detector.processPlaybackTick(
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            mediaPlaybackActive = true,
+            now = 1_000L,
+        )
+
+        assertEquals(null, decision)
+    }
+
+    @Test
+    fun bottomShortsTabAloneDoesNotTrigger() {
+        val decision = detector.processObservedEvent(
+            observedEvent(
+                nodes = listOf(
+                    signalNode(text = "Home", left = 90, top = 1_960, right = 220, bottom = 2_060),
+                    signalNode(text = "Shorts", left = 300, top = 1_960, right = 460, bottom = 2_060),
+                    signalNode(text = "Subscriptions", left = 620, top = 1_960, right = 880, bottom = 2_060),
+                ),
+            ),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = 1_000L,
+        )!!
+
+        assertTrue(decision.snapshot.keywordHits.isEmpty())
+        assertTrue(decision.snapshot.uiFeatures.isEmpty())
+        assertFalse(decision.shouldTrigger)
+    }
+
+    @Test
+    fun mobileActionRailNeedsCreatorMetadataToPromoteBottomShortsTab() {
+        val decision = detector.processObservedEvent(
+            observedEvent(nodes = mobileShortsPlayerNodes(includeMetadata = false)),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = 1_000L,
+        )!!
+
+        assertTrue(decision.snapshot.keywordHits.isEmpty())
+        assertTrue(decision.snapshot.uiFeatures.isEmpty())
+        assertFalse(decision.shouldTrigger)
+    }
+
+    @Test
     fun shortVideoStructureAndRelaunchStillTriggerWithoutSwipeScore() {
         val decision = detector.evaluateScenario(
             scenario = DetectionScenario(
@@ -658,6 +763,25 @@ class ShortVideoDetectorTest {
         signalNode(text = "Share", left = 420, top = 1_050, right = 520, bottom = 1_120),
         signalNode(text = "Save", left = 660, top = 1_050, right = 760, bottom = 1_120),
     )
+
+    private fun mobileShortsPlayerNodes(
+        includeMetadata: Boolean = true,
+        includeBottomShortsTab: Boolean = true,
+    ): List<SignalNode> = buildList {
+        add(signalNode(text = "Like", left = 930, top = 1_030, right = 1_020, bottom = 1_120))
+        add(signalNode(text = "Dislike", left = 930, top = 1_190, right = 1_020, bottom = 1_290))
+        add(signalNode(text = "Comments 209", left = 930, top = 1_360, right = 1_020, bottom = 1_460))
+        add(signalNode(text = "Share", left = 930, top = 1_540, right = 1_020, bottom = 1_640))
+        if (includeBottomShortsTab) {
+            add(signalNode(text = "Shorts", left = 300, top = 1_970, right = 470, bottom = 2_080))
+        }
+        if (includeMetadata) {
+            add(signalNode(text = "@sansansansku__", left = 120, top = 1_600, right = 430, bottom = 1_690))
+            add(signalNode(text = "Subscribe", left = 510, top = 1_600, right = 700, bottom = 1_690))
+            add(signalNode(text = "Save music", left = 120, top = 1_470, right = 390, bottom = 1_560))
+            add(signalNode(text = "I'm talking to you! #music #vocaloid", left = 120, top = 1_720, right = 820, bottom = 1_820))
+        }
+    }
 
     private fun signalNode(
         text: String? = null,
