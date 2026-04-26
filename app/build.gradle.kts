@@ -51,8 +51,20 @@ val copyJumpGifToAssets by tasks.registering(Copy::class) {
     into(layout.projectDirectory.dir("src/main/assets"))
 }
 
+val copyHomeGifToAssets by tasks.registering(Copy::class) {
+    from(rootProject.file("home.gif"))
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+
+val copyGazoToDrawable by tasks.registering(Copy::class) {
+    from(rootProject.file("gazo.png"))
+    into(layout.projectDirectory.dir("src/main/res/drawable"))
+}
+
 tasks.named("preBuild") {
     dependsOn(copyJumpGifToAssets)
+    dependsOn(copyHomeGifToAssets)
+    dependsOn(copyGazoToDrawable)
 }
 
 kotlin {
