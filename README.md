@@ -52,7 +52,7 @@ app/build/outputs/apk/debug/app-debug.apk
 ## 動作例
 
 <p align="center">
-https://github.com/user-attachments/assets/3afbaab4-5b8c-433a-95d1-64c97ef092ee
+  <video src="https://github.com/user-attachments/assets/3afbaab4-5b8c-433a-95d1-64c97ef092ee" controls width="70%"></video>
 </p>
 
 ## UI
