@@ -49,12 +49,6 @@
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## 動作例
-
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/3afbaab4-5b8c-433a-95d1-64c97ef092ee" controls width="70%"></video>
-</p>
-
 ## UI
 
 <p align="center">
@@ -80,3 +74,9 @@ app/build/outputs/apk/debug/app-debug.apk
 ![ドーパミン警察 スライド 14](./slide/dopamine-police-14.png)
 ![ドーパミン警察 スライド 15](./slide/dopamine-police-15.png)
 ![ドーパミン警察 スライド 16](./slide/dopamine-police-16.png)
+
+## 動作例
+
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/3afbaab4-5b8c-433a-95d1-64c97ef092ee" controls width="70%"></video>
+</p>
