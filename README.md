@@ -51,10 +51,9 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## 動作例
 
-<video controls playsinline preload="metadata" width="100%">
-  <source src="./slide/dousa_no_yousu_3.mp4" type="video/mp4" />
-  お使いの環境では動画を埋め込み表示できません。<a href="./slide/dousa_no_yousu_3.mp4">こちらから動画を開いてください</a>。
-</video>
+[![動作例を見る](./gazo.png)](./slide/dousa_no_yousu_3.mp4)
+
+[MP4 を直接開く](./slide/dousa_no_yousu_3.mp4)
 
 ## UI
 
