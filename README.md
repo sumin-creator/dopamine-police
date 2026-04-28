@@ -53,6 +53,7 @@ app/build/outputs/apk/debug/app-debug.apk
 
 <video controls playsinline preload="metadata" width="100%">
   <source src="./slide/dousa_no_yousu_3.mp4" type="video/mp4" />
+</video>
 
 ## UI
 
