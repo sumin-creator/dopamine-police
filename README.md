@@ -29,7 +29,22 @@
 
 ## 発表スライド
 
-- ドーパミン警察（PDF）: [slide/ドーパミン警察_発表資料.pptx.pdf](./slide/ドーパミン警察_発表資料.pptx.pdf)
+![ドーパミン警察 スライド 01](./slide/dopamine-police-01.png)
+![ドーパミン警察 スライド 02](./slide/dopamine-police-02.png)
+![ドーパミン警察 スライド 03](./slide/dopamine-police-03.png)
+![ドーパミン警察 スライド 04](./slide/dopamine-police-04.png)
+![ドーパミン警察 スライド 05](./slide/dopamine-police-05.png)
+![ドーパミン警察 スライド 06](./slide/dopamine-police-06.png)
+![ドーパミン警察 スライド 07](./slide/dopamine-police-07.png)
+![ドーパミン警察 スライド 08](./slide/dopamine-police-08.png)
+![ドーパミン警察 スライド 09](./slide/dopamine-police-09.png)
+![ドーパミン警察 スライド 10](./slide/dopamine-police-10.png)
+![ドーパミン警察 スライド 11](./slide/dopamine-police-11.png)
+![ドーパミン警察 スライド 12](./slide/dopamine-police-12.png)
+![ドーパミン警察 スライド 13](./slide/dopamine-police-13.png)
+![ドーパミン警察 スライド 14](./slide/dopamine-police-14.png)
+![ドーパミン警察 スライド 15](./slide/dopamine-police-15.png)
+![ドーパミン警察 スライド 16](./slide/dopamine-police-16.png)
 
 
 ## セットアップ
