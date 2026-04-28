@@ -51,9 +51,8 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## 動作例
 
-https://github.com/sumin-creator/shortblocker/raw/main/slide/dousa_no_yousu_3.mp4
-
-再生できない場合: [動画ファイルを開く](./slide/dousa_no_yousu_3.mp4)
+<video controls playsinline preload="metadata" width="100%">
+  <source src="./slide/dousa_no_yousu_3.mp4" type="video/mp4" />
 
 ## UI
 
