@@ -51,9 +51,9 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## 動作例
 
-[![動作例を見る](./gazo.png)](./slide/dousa_no_yousu_3.mp4)
+https://github.com/sumin-creator/shortblocker/raw/main/slide/dousa_no_yousu_3.mp4
 
-[MP4 を直接開く](./slide/dousa_no_yousu_3.mp4)
+再生できない場合: [動画ファイルを開く](./slide/dousa_no_yousu_3.mp4)
 
 ## UI
 
