@@ -51,9 +51,7 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## 動作例
 
-<video controls playsinline preload="metadata" width="100%">
-  <source src="./slide/dousa_no_yousu_3.mp4" type="video/mp4" />
-</video>
+[![YouTube Shorts で動作例を見る](https://img.youtube.com/vi/v7cO5lI6esc/hqdefault.jpg)](https://www.youtube.com/shorts/v7cO5lI6esc)
 
 ## UI
 
