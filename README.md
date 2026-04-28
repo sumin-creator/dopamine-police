@@ -51,7 +51,7 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## 動作例
 
-[![YouTube Shorts で動作例を見る](https://img.youtube.com/vi/v7cO5lI6esc/hqdefault.jpg)](https://www.youtube.com/shorts/v7cO5lI6esc)
+https://github.com/user-attachments/assets/3afbaab4-5b8c-433a-95d1-64c97ef092ee
 
 ## UI
 
