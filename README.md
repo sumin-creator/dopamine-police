@@ -42,6 +42,8 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## 発表スライド
 
+PDFの6ページ目を除いて掲載しています。
+
 ![ドーパミン警察 スライド 01](./slide/dopamine-police-01.png)
 ![ドーパミン警察 スライド 02](./slide/dopamine-police-02.png)
 ![ドーパミン警察 スライド 03](./slide/dopamine-police-03.png)
