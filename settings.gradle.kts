@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "shortblocker"
+rootProject.name = "dopamine-police"
 include(":app")
