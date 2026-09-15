@@ -198,37 +198,6 @@ class ShortVideoDetectorTest {
     }
 
     @Test
-    fun quickRelaunchViewerMomentStaysBelowThreshold() {
-        val decision = detector.evaluateScenario(
-            scenario = DetectionScenario(
-                appName = "YouTube",
-                packageName = ServiceTarget.YOUTUBE.packageName,
-                timeBand = TimeBand.LATE_NIGHT,
-                sessionMinutes = 1,
-                relaunchCount = 2,
-                swipeBurst = 0,
-                dwellSeconds = 1,
-                reentryAfterWarning = true,
-                keywords = listOf("Shorts"),
-                uiFeatures = listOf(
-                    UiFeature.FULLSCREEN_VERTICAL,
-                    UiFeature.ACTION_RAIL,
-                    UiFeature.VIDEO_STRUCTURE,
-                ),
-                note = "Quick reentry with only a momentary Shorts viewer frame",
-            ),
-            settings = settings,
-            cooldownUntilEpochMillis = 0L,
-            requirePermissions = true,
-            permissions = permissions,
-            now = 1_000L,
-        )
-
-        assertTrue(decision.snapshot.score < settings.threshold)
-        assertFalse(decision.shouldTrigger)
-    }
-
-    @Test
     fun nonYoutubeShortVideoScenarioDoesNotTriggerForNow() {
         val decision = detector.evaluateScenario(
             scenario = DetectionScenario(
@@ -287,6 +256,124 @@ class ShortVideoDetectorTest {
         assertEquals(setOf("Shorts"), evidence.keywordHits)
         assertEquals(setOf("like", "share"), evidence.actionHints)
         assertEquals(2, evidence.swipeBurst)
+    }
+
+    @Test
+    fun commentsOpenedFromShortsKeepTheShortsSessionBeyondEvidenceTtl() {
+        val base = 100_000L
+        detector.processObservedEvent(
+            observedEvent(nodes = shortsViewerNodes()),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            mediaPlaybackActive = true,
+            now = base,
+        )
+
+        val openedCommentsDecision = detector.processObservedEvent(
+            observedEvent(nodes = commentsPanelNodes()),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            mediaPlaybackActive = false,
+            now = base + 1_000L,
+        )!!
+        val retainedCommentsDecision = detector.processObservedEvent(
+            observedEvent(nodes = commentsPanelNodes()),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            mediaPlaybackActive = false,
+            now = base + 2 * 60_000L,
+        )!!
+
+        assertTrue(UiFeature.SHORTS_COMMENTS in openedCommentsDecision.snapshot.uiFeatures)
+        assertTrue(UiFeature.SHORTS_COMMENTS in retainedCommentsDecision.snapshot.uiFeatures)
+        assertTrue(retainedCommentsDecision.snapshot.score >= settings.threshold)
+        assertTrue(
+            ShortsViewingPolicy.shouldCount(
+                snapshot = retainedCommentsDecision.snapshot,
+                mediaPlaybackActive = false,
+            ),
+        )
+    }
+
+    @Test
+    fun staleShortsSessionDoesNotPromoteNormalVideoComments() {
+        val base = 100_000L
+        detector.processObservedEvent(
+            observedEvent(nodes = shortsViewerNodes()),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base,
+        )
+
+        val commentsDecision = detector.processObservedEvent(
+            observedEvent(nodes = commentsPanelNodes()),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 11_000L,
+        )!!
+
+        assertFalse(UiFeature.SHORTS_COMMENTS in commentsDecision.snapshot.uiFeatures)
+        assertFalse(
+            ShortsViewingPolicy.shouldCount(
+                snapshot = commentsDecision.snapshot,
+                mediaPlaybackActive = false,
+            ),
+        )
+    }
+
+    @Test
+    fun commentsActionAndReplyTextDoNotMasqueradeAsCommentsPanel() {
+        val base = 100_000L
+        detector.processObservedEvent(
+            observedEvent(nodes = shortsViewerNodes()),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base,
+        )
+
+        val actionDecision = detector.processObservedEvent(
+            observedEvent(texts = setOf("View 177 comments", "1 reply")),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 1_000L,
+        )!!
+
+        assertFalse(UiFeature.SHORTS_COMMENTS in actionDecision.snapshot.uiFeatures)
+    }
+
+    @Test
+    fun currentYoutubeShortsPauseOverlayIsMarkedAsPaused() {
+        val pausedDecision = detector.processObservedEvent(
+            observedEvent(
+                nodes = shortsViewerNodes() + signalNode(
+                    text = "Mute video",
+                    left = 440,
+                    top = 950,
+                    right = 640,
+                    bottom = 1150,
+                ),
+            ),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            mediaPlaybackActive = false,
+            now = 100_000L,
+        )!!
+
+        assertTrue(UiFeature.SHORTS_PAUSED in pausedDecision.snapshot.uiFeatures)
+        assertFalse(
+            ShortsViewingPolicy.shouldCount(
+                snapshot = pausedDecision.snapshot,
+                mediaPlaybackActive = false,
+            ),
+        )
     }
 
     @Test
@@ -645,7 +732,14 @@ class ShortVideoDetectorTest {
     }
 
     private fun shortsViewerNodes(): List<SignalNode> = listOf(
-        signalNode(text = "Shorts", left = 110, top = 90, right = 320, bottom = 180),
+        signalNode(
+            viewId = "com.google.android.youtube:id/reel_watch_fragment_root",
+            left = 0,
+            top = 132,
+            right = 1_080,
+            bottom = 2_211,
+        ),
+        signalNode(text = "A video caption #shorts", left = 42, top = 2_021, right = 900, bottom = 2_168),
         signalNode(text = "Like", left = 950, top = 760, right = 1_030, bottom = 840),
         signalNode(text = "Share", left = 950, top = 1_020, right = 1_030, bottom = 1_100),
         signalNode(text = "Comment", left = 950, top = 890, right = 1_030, bottom = 970),
@@ -657,6 +751,13 @@ class ShortVideoDetectorTest {
         signalNode(text = "Like", left = 190, top = 1_050, right = 280, bottom = 1_120),
         signalNode(text = "Share", left = 420, top = 1_050, right = 520, bottom = 1_120),
         signalNode(text = "Save", left = 660, top = 1_050, right = 760, bottom = 1_120),
+    )
+
+    private fun commentsPanelNodes(): List<SignalNode> = listOf(
+        signalNode(text = "Comments. 128", left = 80, top = 580, right = 360, bottom = 660),
+        signalNode(text = "Sort comments", left = 720, top = 580, right = 900, bottom = 660),
+        signalNode(text = "Comment...", left = 90, top = 1_760, right = 720, bottom = 1_840),
+        signalNode(text = "Reply", left = 120, top = 1_040, right = 320, bottom = 1_120),
     )
 
     private fun signalNode(

@@ -1,14 +1,18 @@
 package dev.shortblocker.app.domain
 
 import android.accessibilityservice.AccessibilityService
-import android.media.session.PlaybackState
+import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import dev.shortblocker.app.ShortblockerApplication
 import dev.shortblocker.app.data.AppState
+import dev.shortblocker.app.data.DetectionSnapshot
 import dev.shortblocker.app.data.ServiceTarget
-import dev.shortblocker.app.data.UiFeature
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -16,14 +20,23 @@ import java.util.concurrent.TimeUnit
 
 class ShortVideoAccessibilityService : AccessibilityService() {
     private val application by lazy { applicationContext as ShortblockerApplication }
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val detectionTimingGate = DetectionTimingGate(repeatAfterTrigger = true)
     private var shortsWatchPackageName: String? = null
-    private var lastShortsWatchSampleAt: Long? = null
+    private var lastShortsWatchSampleElapsedRealtime: Long? = null
+    private var pendingShortsWatchMillis: Long = 0L
 
     // 監視タイマー用のJobを保持
     private var monitorJob: Job? = null
 
-    // ... (既存の onServiceConnected などはそのまま) ...
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        serviceScope.launch {
+            application.container.store.updatePermissions(
+                application.buildPermissionSnapshot(ShortVideoAccessibilityService::class.java),
+            )
+        }
+    }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val safeEvent = event ?: return
@@ -40,13 +53,19 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
         val store = application.container.store
         val state = store.state.value
+        val mediaPlaybackActive = if (isDetectionTimingTarget(currentPackageName)) {
+            application.container.mediaPlaybackObserver.isPlaybackActive(currentPackageName)
+        } else {
+            null
+        }
 
         // 既存のイベント駆動の処理
         val decision = application.container.detector.processEvent(
             event = safeEvent,
             settings = state.settings,
             permissions = state.permissions,
-            cooldownUntilEpochMillis = state.cooldownUntilEpochMillis
+            cooldownUntilEpochMillis = state.cooldownUntilEpochMillis,
+            mediaPlaybackActive = mediaPlaybackActive,
         )
 
         // 対象アプリならタイマーを開始、それ以外なら停止
@@ -54,7 +73,7 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         if (isDetectionTimingTarget(targetPackageName)) {
             startMonitoringTimer()
         } else {
-            pauseMonitoringTimer(now = System.currentTimeMillis())
+            pauseMonitoringTimer()
         }
 
         if (decision != null) {
@@ -63,6 +82,7 @@ class ShortVideoAccessibilityService : AccessibilityService() {
                 shouldTrigger = shouldTriggerAfterDetectionTiming(
                     decision = decision,
                     state = state,
+                    mediaPlaybackActive = mediaPlaybackActive,
                 ),
             )
         }
@@ -72,7 +92,7 @@ class ShortVideoAccessibilityService : AccessibilityService() {
     private fun startMonitoringTimer() {
         if (monitorJob?.isActive == true) return
 
-        monitorJob = application.container.applicationScope.launch {
+        monitorJob = serviceScope.launch {
             while (isActive) {
                 delay(3000L) // 3秒ごとにチェック
 
@@ -82,18 +102,24 @@ class ShortVideoAccessibilityService : AccessibilityService() {
                 val rootNode = rootInActiveWindow
                 val activePackage = rootNode?.packageName?.toString().orEmpty()
                 if (activePackage.isBlank()) {
-                    logDetectionTimingSkipped("active-window-unavailable")
+                    pauseDetectionTiming(
+                        reason = "active-window-unavailable",
+                        elapsedRealtime = SystemClock.elapsedRealtime(),
+                    )
                     runCatching { rootNode?.recycle() }
                     continue
                 }
                 if (!isDetectionTimingTarget(activePackage)) {
-                    val now = System.currentTimeMillis()
-                    pauseDetectionTiming("non-target-app pkg=$activePackage", now)
+                    val elapsedRealtime = SystemClock.elapsedRealtime()
                     runCatching { rootNode?.recycle() }
-                    pauseMonitoringTimer(now)
+                    pauseMonitoringTimer(
+                        reason = "non-target-app pkg=$activePackage",
+                        elapsedRealtime = elapsedRealtime,
+                    )
                     return@launch
                 }
-                val isPlaying = checkPlaybackActive(activePackage)
+                val mediaPlaybackActive = application.container.mediaPlaybackObserver
+                    .isPlaybackActive(activePackage)
                 val detector = application.container.detector
 
                 // 1. 視聴中の画面そのものを定期スキャンして検知を更新
@@ -103,12 +129,12 @@ class ShortVideoAccessibilityService : AccessibilityService() {
                     settings = state.settings,
                     permissions = state.permissions,
                     cooldownUntilEpochMillis = state.cooldownUntilEpochMillis,
-                    mediaPlaybackActive = isPlaying,
+                    mediaPlaybackActive = mediaPlaybackActive,
                 ) ?: detector.evaluateCurrentSession(
                     settings = state.settings,
                     permissions = state.permissions,
                     cooldownUntilEpochMillis = state.cooldownUntilEpochMillis,
-                    mediaPlaybackActive = isPlaying,
+                    mediaPlaybackActive = mediaPlaybackActive,
                 )
 
                 if (decision != null) {
@@ -118,7 +144,7 @@ class ShortVideoAccessibilityService : AccessibilityService() {
                         shouldTrigger = shouldTriggerAfterDetectionTiming(
                             decision = decision,
                             state = state,
-                            isPlaying = isPlaying,
+                            mediaPlaybackActive = mediaPlaybackActive,
                         ),
                     )
                 }
@@ -133,10 +159,13 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         resetShortsWatchTime()
     }
 
-    private fun pauseMonitoringTimer(now: Long = System.currentTimeMillis()) {
+    private fun pauseMonitoringTimer(
+        reason: String = "monitor-paused",
+        elapsedRealtime: Long = SystemClock.elapsedRealtime(),
+    ) {
         monitorJob?.cancel()
         monitorJob = null
-        pauseDetectionTiming("monitor-paused", now)
+        pauseDetectionTiming(reason, elapsedRealtime)
     }
 
     private fun handleDecision(
@@ -161,31 +190,51 @@ class ShortVideoAccessibilityService : AccessibilityService() {
         stopMonitoringTimer()
     }
 
+    override fun onDestroy() {
+        stopMonitoringTimer()
+        serviceScope.cancel()
+        super.onDestroy()
+    }
+
     private fun shouldTriggerAfterDetectionTiming(
         decision: DetectionDecision,
         state: AppState,
-        isPlaying: Boolean = true,
+        mediaPlaybackActive: Boolean? = null,
+        elapsedRealtime: Long = SystemClock.elapsedRealtime(),
     ): Boolean {
         val snapshot = decision.snapshot
         val target = ServiceTarget.fromPackage(snapshot.packageName)
         if (!isDetectionTimingTarget(snapshot.packageName)) {
-            pauseShortsWatchTime(snapshot.createdAtEpochMillis)
-            pauseDetectionTiming("non-target-decision pkg=${snapshot.packageName}", snapshot.createdAtEpochMillis)
+            pauseDetectionTiming(
+                reason = "non-target-decision pkg=${snapshot.packageName}",
+                elapsedRealtime = elapsedRealtime,
+            )
             return false
         }
-        updateShortsWatchTime(decision)
+        val shouldCount = ShortsViewingPolicy.shouldCount(
+            snapshot = snapshot,
+            mediaPlaybackActive = mediaPlaybackActive,
+        )
+        if (!shouldCount) {
+            pauseDetectionTiming(
+                reason = "shorts-not-countable playback=${playbackLabel(mediaPlaybackActive)}",
+                elapsedRealtime = elapsedRealtime,
+            )
+            return false
+        }
+        updateShortsWatchTime(snapshot, elapsedRealtime)
 
         val timingCandidate = decision.snapshot.score >= state.settings.threshold
         val timing = detectionTimingGate.update(
             packageName = snapshot.packageName,
             overThreshold = timingCandidate,
-            now = snapshot.createdAtEpochMillis,
+            now = elapsedRealtime,
             requiredMillis = detectionDelayMillis(state),
         )
         logDetectionTiming(
             decision = decision,
             timing = timing,
-            isPlaying = isPlaying,
+            mediaPlaybackActive = mediaPlaybackActive,
             timingCandidate = timingCandidate,
             threshold = state.settings.threshold,
         )
@@ -208,7 +257,7 @@ class ShortVideoAccessibilityService : AccessibilityService() {
     private fun logDetectionTiming(
         decision: DetectionDecision,
         timing: DetectionTimingResult,
-        isPlaying: Boolean,
+        mediaPlaybackActive: Boolean?,
         timingCandidate: Boolean,
         threshold: Int,
     ) {
@@ -221,92 +270,60 @@ class ShortVideoAccessibilityService : AccessibilityService() {
                 " threshold=$threshold" +
                 " candidate=${flag(timingCandidate)}" +
                 " triggerable=${flag(decision.triggerCandidate)}" +
-                " playing=${flag(isPlaying)}" +
+                " playback=${playbackLabel(mediaPlaybackActive)}" +
                 " accumulated=${"%.1f".format(accumulatedSeconds)}s/${"%.1f".format(requiredSeconds)}s" +
                 " ready=${flag(timing.readyToTrigger)}",
         )
     }
 
-    private fun pauseDetectionTiming(reason: String, now: Long) {
-        val timing = detectionTimingGate.pause(now)
-        pauseShortsWatchTime(now)
+    private fun pauseDetectionTiming(reason: String, elapsedRealtime: Long) {
+        val timing = detectionTimingGate.pause(elapsedRealtime)
+        pauseShortsWatchTime(elapsedRealtime)
         Log.d(
             TAG,
             "timing paused reason=$reason accumulated=${"%.1f".format(timing.accumulatedMillis / 1000.0)}s",
         )
     }
 
-    private fun updateShortsWatchTime(decision: DetectionDecision) {
-        val snapshot = decision.snapshot
-        if (!isDetectedYoutubeShorts(decision)) {
-            pauseShortsWatchTime(snapshot.createdAtEpochMillis)
-            return
-        }
-
-        val lastSampleAt = lastShortsWatchSampleAt
+    private fun updateShortsWatchTime(snapshot: DetectionSnapshot, elapsedRealtime: Long) {
+        val lastSampleAt = lastShortsWatchSampleElapsedRealtime
         val samePackage = shortsWatchPackageName == snapshot.packageName
         if (lastSampleAt != null && samePackage) {
-            recordDetectedShortsTime(snapshot.createdAtEpochMillis - lastSampleAt)
+            recordDetectedShortsTime(elapsedRealtime - lastSampleAt)
         }
         shortsWatchPackageName = snapshot.packageName
-        lastShortsWatchSampleAt = snapshot.createdAtEpochMillis
+        lastShortsWatchSampleElapsedRealtime = elapsedRealtime
     }
 
-    private fun pauseShortsWatchTime(now: Long) {
-        val lastSampleAt = lastShortsWatchSampleAt
+    private fun pauseShortsWatchTime(elapsedRealtime: Long) {
+        val lastSampleAt = lastShortsWatchSampleElapsedRealtime
         if (lastSampleAt != null) {
-            recordDetectedShortsTime(now - lastSampleAt)
+            recordDetectedShortsTime(elapsedRealtime - lastSampleAt)
         }
         resetShortsWatchTime()
     }
 
     private fun resetShortsWatchTime() {
         shortsWatchPackageName = null
-        lastShortsWatchSampleAt = null
-    }
-
-    private fun isDetectedYoutubeShorts(decision: DetectionDecision): Boolean {
-        val snapshot = decision.snapshot
-        if (!isDetectionTimingTarget(snapshot.packageName)) {
-            return false
-        }
-        val hasShortsSurface = snapshot.keywordHits.isNotEmpty() ||
-            UiFeature.ACTION_RAIL in snapshot.uiFeatures ||
-            UiFeature.VIDEO_STRUCTURE in snapshot.uiFeatures
-        return hasShortsSurface && snapshot.score > 0
+        lastShortsWatchSampleElapsedRealtime = null
     }
 
     private fun recordDetectedShortsTime(addedMillis: Long) {
-        val addedSeconds = (addedMillis.coerceIn(0L, MAX_WATCH_TIME_SAMPLE_GAP_MS) / 1000L).toInt()
+        pendingShortsWatchMillis += addedMillis.coerceIn(0L, MAX_WATCH_TIME_SAMPLE_GAP_MS)
+        val addedSeconds = (pendingShortsWatchMillis / 1000L).toInt()
         if (addedSeconds <= 0) return
+        pendingShortsWatchMillis %= 1000L
         application.container.applicationScope.launch {
             application.container.store.addWatchTime(addedSeconds)
         }
     }
 
-    private fun logDetectionTimingSkipped(reason: String) {
-        Log.d(TAG, "timing skip reason=$reason")
-    }
-
     private fun flag(value: Boolean): String = if (value) "Y" else "N"
 
-    private fun checkPlaybackActive(packageName: String): Boolean {
-        if (packageName.isBlank()) return false
-        return try {
-            val mediaSessionManager = getSystemService(android.media.session.MediaSessionManager::class.java)
-            // すでに実装されている NotificationListenerService のコンポーネント名を指定
-            val componentName = android.content.ComponentName(this, ShortblockerMediaSessionListenerService::class.java)
-            val controllers = mediaSessionManager.getActiveSessions(componentName)
-
-            val targetController = controllers.firstOrNull { it.packageName == packageName }
-            val state = targetController?.playbackState?.state
-
-            // 再生中またはバッファリング中であれば true
-            state == PlaybackState.STATE_PLAYING || state == PlaybackState.STATE_BUFFERING
-        } catch (e: SecurityException) {
-            // 権限がない場合は安全のため false を返す
-            false
-        }
+    private fun playbackLabel(value: Boolean?): String = when (value) {
+        true -> "playing"
+        false -> "inactive"
+        null -> "unknown"
     }
 
     private companion object {
