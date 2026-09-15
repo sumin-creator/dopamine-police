@@ -54,6 +54,7 @@ internal data class EventSignals(
 
     val normalizedText: String = aggregatedTexts.joinToString(separator = " ").lowercase(Locale.US)
     val normalizedViewIds: String = aggregatedViewIds.joinToString(separator = " ").lowercase(Locale.US)
+    val allViewIds: Set<String> = aggregatedViewIds
 
     fun isEmpty(): Boolean = aggregatedTexts.isEmpty() && aggregatedViewIds.isEmpty() && classNames.isEmpty()
 }
@@ -82,6 +83,8 @@ internal data class ViewerSurfaceSignals(
     val keywordHits: Set<String> = emptySet(),
     val actionHints: Set<String> = emptySet(),
     val viewerEvidence: Boolean = false,
+    val commentsSurface: Boolean = false,
+    val playbackPaused: Boolean = false,
     val normalVideoUiDetected: Boolean = false,
 )
 
@@ -153,6 +156,38 @@ class ShortVideoDetector {
         "play_pause",
         "seek_bar",
         "miniplayer",
+    )
+    private val youtubeCommentTitleHints = listOf(
+        "comments",
+        "コメント",
+    )
+    private val youtubeCommentBodyHints = listOf(
+        "add a comment",
+        "reply",
+        "replies",
+        "sort by",
+        "sort comments",
+        "comment...",
+        "コメントを追加",
+        "返信",
+        "件の返信",
+        "並べ替え",
+    )
+    private val youtubeShortsContainerViewIdHints = listOf(
+        "reel_watch_fragment_root",
+        "reel_player_page_container",
+        "reel_watch_player",
+    )
+    private val youtubeShortsPausedHints = listOf(
+        "play video",
+        "mute video",
+        "unmute video",
+        "動画を再生",
+        "動画をミュート",
+        "ミュートを解除",
+    )
+    private val youtubeShortsPausedViewIdHints = listOf(
+        "reel_feedback_play",
     )
 
     private var activeSession: ActiveSession? = null
@@ -400,11 +435,25 @@ class ShortVideoDetector {
         )
         val currentKeywordHits = surfaceSignals.keywordHits
         val currentActionHints = surfaceSignals.actionHints
-        val shouldResetEvidence = surfaceSignals.normalVideoUiDetected && !surfaceSignals.viewerEvidence
+        val knownShortsContext = surfaceSignals.viewerEvidence ||
+            baseSession.shortsSurface == ShortsSurface.COMMENTS ||
+            (baseSession.shortsSurface == ShortsSurface.VIEWER &&
+                isWithinWindow(baseSession.lastReliableEvidenceAt, now, COMMENTS_ENTRY_WINDOW_MS))
+        val playbackPaused = surfaceSignals.playbackPaused && knownShortsContext
+        val explicitNormalVideo = surfaceSignals.normalVideoUiDetected &&
+            !surfaceSignals.viewerEvidence &&
+            !playbackPaused
+        val commentsSurface = surfaceSignals.commentsSurface && knownShortsContext
+        val shouldResetEvidence = explicitNormalVideo && !commentsSurface
         val keywordState = if (shouldResetEvidence) {
             RetainedHitsState(
                 hits = emptySet(),
                 lastSeenAt = 0L,
+            )
+        } else if (commentsSurface) {
+            RetainedHitsState(
+                hits = baseSession.keywordHits,
+                lastSeenAt = if (baseSession.keywordHits.isNotEmpty()) now else 0L,
             )
         } else {
             retainFreshHits(
@@ -419,6 +468,11 @@ class ShortVideoDetector {
             RetainedHitsState(
                 hits = emptySet(),
                 lastSeenAt = 0L,
+            )
+        } else if (commentsSurface) {
+            RetainedHitsState(
+                hits = baseSession.actionHints,
+                lastSeenAt = if (baseSession.actionHints.isNotEmpty()) now else 0L,
             )
         } else {
             retainFreshHits(
@@ -444,12 +498,13 @@ class ShortVideoDetector {
         val freshReliableEvidence = if (shouldResetEvidence) {
             false
         } else {
-            reliableEvidenceObservedNow ||
+            commentsSurface ||
+                reliableEvidenceObservedNow ||
                 isWithinWindow(baseSession.lastReliableEvidenceAt, now, SHORTS_EVIDENCE_TTL_MS)
         }
         val lastReliableEvidenceAt = when {
             shouldResetEvidence -> 0L
-            reliableEvidenceObservedNow -> now
+            commentsSurface || reliableEvidenceObservedNow -> now
             else -> baseSession.lastReliableEvidenceAt
         }
         val verticalScroll = isLikelyVerticalScroll(observedEvent)
@@ -473,17 +528,30 @@ class ShortVideoDetector {
             swipeBurst = swipeBurst,
             currentViewerEvidence = currentViewerEvidence,
             continuingShortsScroll = continuingShortsScroll,
+            commentsSurface = commentsSurface,
         )
-        val stage = resolveDetectionStage(
-            scoreableEvidence = scoreableEvidence,
-            freshReliableEvidence = freshReliableEvidence,
-            keywordHits = keywordHits,
-        )
+        val stage = if (commentsSurface) {
+            DetectionStage.WATCHING_COMMENTS
+        } else {
+            resolveDetectionStage(
+                scoreableEvidence = scoreableEvidence,
+                freshReliableEvidence = freshReliableEvidence,
+                keywordHits = keywordHits,
+            )
+        }
+        val shortsSurface = when {
+            commentsSurface -> ShortsSurface.COMMENTS
+            currentViewerEvidence || playbackPaused -> ShortsSurface.VIEWER
+            baseSession.shortsSurface == ShortsSurface.COMMENTS && freshReliableEvidence -> ShortsSurface.COMMENTS
+            baseSession.shortsSurface == ShortsSurface.VIEWER && freshReliableEvidence -> ShortsSurface.VIEWER
+            else -> ShortsSurface.NONE
+        }
         val updatedSession = baseSession.copy(
             swipeBurst = swipeBurst,
             keywordHits = keywordHits,
             actionHints = actionHints,
             stage = stage,
+            shortsSurface = shortsSurface,
             lastKeywordEvidenceAt = keywordState.lastSeenAt,
             lastActionHintEvidenceAt = actionHintState.lastSeenAt,
             lastReliableEvidenceAt = lastReliableEvidenceAt,
@@ -497,6 +565,8 @@ class ShortVideoDetector {
             keywordHits = scoreableEvidence.keywordHits,
             actionHints = scoreableEvidence.actionHints,
             swipeBurst = scoreableEvidence.swipeBurst,
+            commentsSurface = commentsSurface,
+            playbackPaused = playbackPaused && !commentsSurface,
         )
 
         val scenario = DetectionScenario(
@@ -590,9 +660,12 @@ class ShortVideoDetector {
         swipeBurst: Int,
         currentViewerEvidence: Boolean,
         continuingShortsScroll: Boolean,
+        commentsSurface: Boolean = false,
     ): ScoreableShortsEvidence {
         val retainedShortsLikeEvidence = keywordHits.isNotEmpty() && actionHints.isNotEmpty()
-        val canScoreAsShorts = currentViewerEvidence || continuingShortsScroll || retainedShortsLikeEvidence
+        val canScoreAsShorts = currentViewerEvidence ||
+            continuingShortsScroll ||
+            (commentsSurface && retainedShortsLikeEvidence)
         return if (canScoreAsShorts) {
             ScoreableShortsEvidence(
                 keywordHits = keywordHits,
@@ -662,6 +735,7 @@ class ShortVideoDetector {
         rawActionHints: Set<String>,
     ): ViewerSurfaceSignals {
         val positionedNodes = signals.nodes.filter { it.hasBounds }
+        val shortsContainerDetected = detectShortsViewerContainer(signals)
         if (positionedNodes.isEmpty()) {
             val normalVideoUiDetected = detectStandardVideoUi(
                 signals = signals,
@@ -671,7 +745,7 @@ class ShortVideoDetector {
             )
             val fallbackKeywordHits = rawKeywordHits
                 .filterNot { it.startsWith("ui:") }
-                .toSet()
+                .toSet() + if (shortsContainerDetected) setOf("ui:reel") else emptySet()
             val fallbackViewerEvidence = !normalVideoUiDetected &&
                 fallbackKeywordHits.isNotEmpty() &&
                 rawActionHints.size >= FALLBACK_MIN_ACTION_HINTS
@@ -679,6 +753,13 @@ class ShortVideoDetector {
                 keywordHits = fallbackKeywordHits,
                 actionHints = if (fallbackViewerEvidence) rawActionHints else emptySet(),
                 viewerEvidence = fallbackViewerEvidence,
+                commentsSurface = detectCommentsSurface(
+                    signals = signals,
+                    positionedNodes = emptyList(),
+                    frameWidth = 0,
+                    frameHeight = 0,
+                ),
+                playbackPaused = detectShortsPlaybackPaused(signals),
                 normalVideoUiDetected = normalVideoUiDetected,
             )
         }
@@ -688,7 +769,7 @@ class ShortVideoDetector {
         val surfaceKeywordHits = positionedNodes
             .filter { node -> isLikelyShortsHeaderNode(node, frameWidth, frameHeight) }
             .flatMap { node -> detectKeywordsForNode(node) }
-            .toSet()
+            .toSet() + if (shortsContainerDetected) setOf("ui:reel") else emptySet()
         val surfaceActionHints = positionedNodes
             .filter { node -> isLikelyActionRailNode(node, frameWidth, frameHeight) }
             .flatMap { node -> detectActionHintsForNode(node) }
@@ -701,6 +782,13 @@ class ShortVideoDetector {
             keywordHits = surfaceKeywordHits,
             actionHints = surfaceActionHints,
             viewerEvidence = viewerEvidence,
+            commentsSurface = detectCommentsSurface(
+                signals = signals,
+                positionedNodes = positionedNodes,
+                frameWidth = frameWidth,
+                frameHeight = frameHeight,
+            ),
+            playbackPaused = detectShortsPlaybackPaused(signals),
             normalVideoUiDetected = detectStandardVideoUi(
                 signals = signals,
                 positionedNodes = positionedNodes,
@@ -708,6 +796,68 @@ class ShortVideoDetector {
                 frameHeight = frameHeight,
             ),
         )
+    }
+
+    private fun detectShortsViewerContainer(signals: EventSignals): Boolean {
+        return signals.allViewIds.any { viewId ->
+            val normalized = viewId.lowercase(Locale.US)
+            youtubeShortsContainerViewIdHints.any { hint -> normalized.endsWith(":id/$hint") }
+        }
+    }
+
+    private fun detectShortsPlaybackPaused(signals: EventSignals): Boolean {
+        val hasPausedText = youtubeShortsPausedHints.any { hint ->
+            signals.normalizedText.contains(hint.lowercase(Locale.US))
+        }
+        val hasPausedControl = signals.allViewIds.any { viewId ->
+            val normalized = viewId.lowercase(Locale.US)
+            youtubeShortsPausedViewIdHints.any { hint -> normalized.endsWith(":id/$hint") }
+        }
+        return hasPausedText || hasPausedControl
+    }
+
+    private fun detectCommentsSurface(
+        signals: EventSignals,
+        positionedNodes: List<SignalNode>,
+        frameWidth: Int,
+        frameHeight: Int,
+    ): Boolean {
+        val normalizedText = signals.normalizedText
+        val hasCommentBodyHint = youtubeCommentBodyHints.any { hint ->
+            normalizedText.contains(hint.lowercase(Locale.US))
+        }
+        val hasCommentPanelViewId = signals.allViewIds.any { viewId ->
+            val normalized = viewId.lowercase(Locale.US)
+            "comment" in normalized && (
+                "panel" in normalized ||
+                    "sheet" in normalized ||
+                    "thread" in normalized ||
+                    "header" in normalized
+                )
+        }
+        if (positionedNodes.isEmpty() || frameWidth == 0 || frameHeight == 0) {
+            val hasTitle = signals.texts.any(::isYoutubeCommentPanelTitle)
+            return hasTitle && (hasCommentBodyHint || hasCommentPanelViewId)
+        }
+
+        val hasPanelTitle = positionedNodes.any { node ->
+            val centerX = node.centerX ?: return@any false
+            val centerY = node.centerY ?: return@any false
+            isYoutubeCommentPanelTitle(node.normalizedText) &&
+                centerX < (frameWidth * 0.68).toInt() &&
+                centerY < (frameHeight * 0.75).toInt()
+        }
+        return hasPanelTitle && (hasCommentBodyHint || hasCommentPanelViewId)
+    }
+
+    private fun isYoutubeCommentPanelTitle(text: String): Boolean {
+        val normalized = text.trim().lowercase(Locale.US)
+        return youtubeCommentTitleHints.any { hint ->
+            val normalizedHint = hint.lowercase(Locale.US)
+            normalized == normalizedHint ||
+                normalized.startsWith("$normalizedHint ") ||
+                normalized.startsWith("$normalizedHint.")
+        }
     }
 
     private fun hasYoutubeShortsViewerEvidence(
@@ -793,6 +943,8 @@ class ShortVideoDetector {
         keywordHits: Set<String>,
         actionHints: Set<String>,
         swipeBurst: Int,
+        commentsSurface: Boolean = false,
+        playbackPaused: Boolean = false,
     ): List<UiFeature> {
         val hasShortSurfaceHint = keywordHits.isNotEmpty()
         val hasActionRail = actionHints.size >= MIN_ACTION_RAIL_HINTS
@@ -813,6 +965,12 @@ class ShortVideoDetector {
             }
             if (hasRepeatedVerticalNavigation && (hasShortSurfaceHint || hasActionRail)) {
                 add(UiFeature.CONTINUOUS_TRANSITIONS)
+            }
+            if (commentsSurface && hasShortVideoStructure) {
+                add(UiFeature.SHORTS_COMMENTS)
+            }
+            if (playbackPaused && hasShortVideoStructure) {
+                add(UiFeature.SHORTS_PAUSED)
             }
         }.distinct()
     }
@@ -936,6 +1094,7 @@ class ShortVideoDetector {
             "NO[${blockReasons.joinToString(",").ifEmpty { "blocked" }}]"
         }
         val surfaceLabel = when {
+            surfaceSignals.commentsSurface -> "comments"
             surfaceSignals.viewerEvidence -> "viewer"
             surfaceSignals.normalVideoUiDetected -> "normal-video"
             else -> "unknown"
@@ -1065,6 +1224,7 @@ class ShortVideoDetector {
         val keywordHits: Set<String>,
         val actionHints: Set<String>,
         val stage: DetectionStage,
+        val shortsSurface: ShortsSurface = ShortsSurface.NONE,
         val lastKeywordEvidenceAt: Long,
         val lastActionHintEvidenceAt: Long,
         val lastReliableEvidenceAt: Long,
@@ -1084,6 +1244,13 @@ class ShortVideoDetector {
         IDLE,
         CANDIDATE,
         WATCHING_SHORTS,
+        WATCHING_COMMENTS,
+    }
+
+    private enum class ShortsSurface {
+        NONE,
+        VIEWER,
+        COMMENTS,
     }
 
     private companion object {
@@ -1109,13 +1276,14 @@ class ShortVideoDetector {
         const val SHORTS_KEYWORD_TTL_MS = 90_000L
         const val SHORTS_ACTION_HINT_TTL_MS = 90_000L
         const val SHORTS_EVIDENCE_TTL_MS = 90_000L
+        const val COMMENTS_ENTRY_WINDOW_MS = 10_000L
         const val WARNING_RATE_LIMIT_MS = 30_000L
         const val RELAUNCH_WINDOW_MS = 5 * 60_000L
         const val FALLBACK_MIN_ACTION_HINTS = 3
         const val REQUIRED_SHORTS_SWIPES = 2
         const val MIN_ACTION_RAIL_HINTS = 2
-        const val MAX_NODE_DEPTH = 5
-        const val MAX_NODE_COUNT = 80
+        const val MAX_NODE_DEPTH = 16
+        const val MAX_NODE_COUNT = 350
         val VIEW_ID_TOKEN_SPLIT_REGEX = Regex("[^a-z0-9]+")
     }
 
@@ -1139,7 +1307,8 @@ class ShortVideoDetector {
             target = target,
             keywordHits = session.keywordHits,
             actionHints = session.actionHints,
-            swipeBurst = session.swipeBurst
+            swipeBurst = session.swipeBurst,
+            commentsSurface = session.shortsSurface == ShortsSurface.COMMENTS,
         )
 
         // 現在のセッション情報から最新のシナリオを構築

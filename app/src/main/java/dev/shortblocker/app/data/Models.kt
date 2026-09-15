@@ -87,7 +87,9 @@ enum class UiFeature(val label: String) {
     FULLSCREEN_VERTICAL("全画面縦動画"),
     ACTION_RAIL("右側アクション列"),
     VIDEO_STRUCTURE("動画視聴画面構造"),
-    CONTINUOUS_TRANSITIONS("連続遷移");
+    CONTINUOUS_TRANSITIONS("連続遷移"),
+    SHORTS_COMMENTS("Shortsコメント画面"),
+    SHORTS_PAUSED("Shorts一時停止中");
 
     companion object {
         fun fromNames(names: List<String>): List<UiFeature> =

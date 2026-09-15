@@ -23,13 +23,20 @@ class MediaSessionPlaybackObserver(
             .getOrNull() ?: return null
         val matchingSessions = activeSessions.filter { it.packageName == packageName }
         if (matchingSessions.isEmpty()) {
-            return false
+            return null
         }
-        return matchingSessions.any { controller -> controller.isActivelyPlaying() }
+        val observedStates = matchingSessions.mapNotNull { controller ->
+            controller.activePlaybackState()
+        }
+        if (observedStates.isEmpty()) {
+            return null
+        }
+        return observedStates.any { it }
     }
 
-    private fun MediaController.isActivelyPlaying(): Boolean {
-        return when (playbackState?.state) {
+    private fun MediaController.activePlaybackState(): Boolean? {
+        val state = playbackState?.state ?: return null
+        return when (state) {
             PlaybackState.STATE_PLAYING,
             PlaybackState.STATE_BUFFERING,
             PlaybackState.STATE_CONNECTING,
