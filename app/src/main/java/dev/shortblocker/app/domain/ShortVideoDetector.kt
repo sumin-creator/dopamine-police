@@ -67,6 +67,7 @@ internal data class SignalNode(
     val top: Int? = null,
     val right: Int? = null,
     val bottom: Int? = null,
+    val visibleToUser: Boolean? = null,
 ) {
     val normalizedText: String = text?.lowercase(Locale.US).orEmpty()
     val normalizedViewId: String = viewId?.lowercase(Locale.US).orEmpty()
@@ -85,6 +86,7 @@ internal data class ViewerSurfaceSignals(
     val viewerEvidence: Boolean = false,
     val commentsSurface: Boolean = false,
     val playbackPaused: Boolean = false,
+    val playbackResumed: Boolean = false,
     val normalVideoUiDetected: Boolean = false,
 )
 
@@ -97,6 +99,8 @@ internal data class ObservedEvent(
 )
 
 class ShortVideoDetector {
+    private val instagramReelsSurfaceDetector = InstagramReelsSurfaceDetector()
+
     private val notificationDialogues = listOf(
         "はい、おしまい。さっさと閉じなさい。",
         "またショート動画？ 次から次へと、よく飽きないわね。",
@@ -203,8 +207,8 @@ class ShortVideoDetector {
         now: Long = System.currentTimeMillis(),
     ): DetectionDecision {
         val target = ServiceTarget.fromPackage(scenario.packageName)
-        val youtubeRuntimeTarget = target == ServiceTarget.YOUTUBE && settings.supportedApps.isEnabled(target)
-        val targetAppContext = if (youtubeRuntimeTarget) {
+        val runtimeTarget = target in DETECTION_TARGETS && settings.supportedApps.isEnabled(target)
+        val targetAppContext = if (runtimeTarget) {
             val settledSessionBonus = if (scenario.sessionMinutes >= APP_CONTEXT_SETTLE_MINUTES) {
                 APP_CONTEXT_SETTLE_BONUS
             } else {
@@ -291,7 +295,7 @@ class ShortVideoDetector {
         val permissionsReady = !requirePermissions || permissions.canIntervene
         val reliableShortVideoEvidence = hasReliableShortVideoEvidence(scenario)
         val triggerCandidate = settings.alertsEnabled &&
-            youtubeRuntimeTarget &&
+            runtimeTarget &&
             permissionsReady &&
             now >= cooldownUntilEpochMillis &&
             reliableShortVideoEvidence &&
@@ -351,6 +355,28 @@ class ShortVideoDetector {
         )
     }
 
+    /**
+     * Instagram の Reels 再生中だけ届く SeekBar 進捗イベントを反映する。
+     * 画面全体を示さないイベントなので、既存の Reels セッションの停止解除にのみ使う。
+     */
+    fun recordInstagramPlaybackProgress(
+        packageName: String,
+        now: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val session = activeSession ?: return false
+        if (ServiceTarget.fromPackage(packageName) != ServiceTarget.INSTAGRAM ||
+            session.packageName != packageName ||
+            session.shortsSurface == ShortsSurface.NONE
+        ) {
+            return false
+        }
+        activeSession = session.copy(
+            playbackPaused = false,
+            lastPlaybackProgressAt = now,
+        )
+        return true
+    }
+
     internal fun processObservedEvent(
         observedEvent: ObservedEvent,
         settings: MonitorSettings,
@@ -365,7 +391,7 @@ class ShortVideoDetector {
             .let { TimeBand.fromHour(it.hour) }
         val target = ServiceTarget.fromPackage(packageName)
 
-        if (target != ServiceTarget.YOUTUBE) {
+        if (target !in DETECTION_TARGETS) {
             activeSession?.let { active ->
                 recentRelaunchStates[active.packageName] = RelaunchState(
                     relaunchCount = active.relaunchCount,
@@ -393,6 +419,7 @@ class ShortVideoDetector {
                 shouldTrigger = false,
             )
         }
+        val detectionTarget = target ?: return null
 
         val existing = activeSession
         val switchedApp = existing?.packageName != packageName
@@ -409,7 +436,7 @@ class ShortVideoDetector {
         val baseSession = if (switchedApp) {
             ActiveSession(
                 packageName = packageName,
-                appName = target.appName,
+                appName = detectionTarget.appName,
                 sessionStartedAt = now,
                 relaunchCount = relaunchCount,
                 swipeBurst = 0,
@@ -426,20 +453,40 @@ class ShortVideoDetector {
         } ?: return null
 
         val signals = observedEvent.signals
-        val rawKeywordHits = detectKeywords(target, signals).toSet()
-        val rawActionHints = detectActionHints(signals).toSet()
-        val surfaceSignals = analyzeYoutubeViewerSurface(
-            signals = signals,
-            rawKeywordHits = rawKeywordHits,
-            rawActionHints = rawActionHints,
-        )
+        val rawKeywordHits = if (detectionTarget == ServiceTarget.YOUTUBE) {
+            detectKeywords(detectionTarget, signals).toSet()
+        } else {
+            emptySet()
+        }
+        val rawActionHints = if (detectionTarget == ServiceTarget.YOUTUBE) {
+            detectActionHints(signals).toSet()
+        } else {
+            emptySet()
+        }
+        val surfaceSignals = when (detectionTarget) {
+            ServiceTarget.YOUTUBE -> analyzeYoutubeViewerSurface(
+                signals = signals,
+                rawKeywordHits = rawKeywordHits,
+                rawActionHints = rawActionHints,
+            )
+            ServiceTarget.INSTAGRAM -> instagramReelsSurfaceDetector.analyze(signals)
+            else -> ViewerSurfaceSignals()
+        }
         val currentKeywordHits = surfaceSignals.keywordHits
         val currentActionHints = surfaceSignals.actionHints
         val knownShortsContext = surfaceSignals.viewerEvidence ||
             baseSession.shortsSurface == ShortsSurface.COMMENTS ||
             (baseSession.shortsSurface == ShortsSurface.VIEWER &&
                 isWithinWindow(baseSession.lastReliableEvidenceAt, now, COMMENTS_ENTRY_WINDOW_MS))
-        val playbackPaused = surfaceSignals.playbackPaused && knownShortsContext
+        val recentPlaybackProgress = detectionTarget == ServiceTarget.INSTAGRAM &&
+            isWithinWindow(
+                baseSession.lastPlaybackProgressAt,
+                now,
+                INSTAGRAM_PLAYBACK_PROGRESS_TTL_MS,
+            )
+        val playbackPaused = surfaceSignals.playbackPaused &&
+            knownShortsContext &&
+            !recentPlaybackProgress
         val explicitNormalVideo = surfaceSignals.normalVideoUiDetected &&
             !surfaceSignals.viewerEvidence &&
             !playbackPaused
@@ -451,9 +498,10 @@ class ShortVideoDetector {
                 lastSeenAt = 0L,
             )
         } else if (commentsSurface) {
+            val retainedCommentsHits = baseSession.keywordHits + currentKeywordHits
             RetainedHitsState(
-                hits = baseSession.keywordHits,
-                lastSeenAt = if (baseSession.keywordHits.isNotEmpty()) now else 0L,
+                hits = retainedCommentsHits,
+                lastSeenAt = if (retainedCommentsHits.isNotEmpty()) now else 0L,
             )
         } else {
             retainFreshHits(
@@ -470,9 +518,10 @@ class ShortVideoDetector {
                 lastSeenAt = 0L,
             )
         } else if (commentsSurface) {
+            val retainedCommentsHints = baseSession.actionHints + currentActionHints
             RetainedHitsState(
-                hits = baseSession.actionHints,
-                lastSeenAt = if (baseSession.actionHints.isNotEmpty()) now else 0L,
+                hits = retainedCommentsHints,
+                lastSeenAt = if (retainedCommentsHints.isNotEmpty()) now else 0L,
             )
         } else {
             retainFreshHits(
@@ -489,7 +538,7 @@ class ShortVideoDetector {
         val retainedViewerEvidence = if (shouldResetEvidence) {
             false
         } else {
-            hasYoutubeShortsViewerEvidence(
+            hasShortVideoViewerEvidence(
                 keywordHits = keywordHits,
                 actionHints = actionHints,
             )
@@ -546,31 +595,41 @@ class ShortVideoDetector {
             baseSession.shortsSurface == ShortsSurface.VIEWER && freshReliableEvidence -> ShortsSurface.VIEWER
             else -> ShortsSurface.NONE
         }
+        val sessionPlaybackPaused = when {
+            detectionTarget != ServiceTarget.INSTAGRAM -> playbackPaused
+            shouldResetEvidence -> false
+            playbackPaused -> true
+            surfaceSignals.playbackResumed -> false
+            shortsSurface != ShortsSurface.NONE -> baseSession.playbackPaused
+            else -> false
+        }
         val updatedSession = baseSession.copy(
             swipeBurst = swipeBurst,
             keywordHits = keywordHits,
             actionHints = actionHints,
             stage = stage,
             shortsSurface = shortsSurface,
+            playbackPaused = sessionPlaybackPaused,
             lastKeywordEvidenceAt = keywordState.lastSeenAt,
             lastActionHintEvidenceAt = actionHintState.lastSeenAt,
             lastReliableEvidenceAt = lastReliableEvidenceAt,
             lastCountedSwipeAt = swipeState.lastCountedSwipeAt,
             lastTransitionAt = if (shouldResetEvidence || swipeState.counted) now else lastTransitionAt,
+            lastPlaybackProgressAt = if (shouldResetEvidence) 0L else baseSession.lastPlaybackProgressAt,
         )
         activeSession = updatedSession
 
         val uiFeatures = detectUiFeatures(
-            target = target,
+            target = detectionTarget,
             keywordHits = scoreableEvidence.keywordHits,
             actionHints = scoreableEvidence.actionHints,
             swipeBurst = scoreableEvidence.swipeBurst,
             commentsSurface = commentsSurface,
-            playbackPaused = playbackPaused && !commentsSurface,
+            playbackPaused = sessionPlaybackPaused && !commentsSurface,
         )
 
         val scenario = DetectionScenario(
-            appName = target.appName,
+            appName = detectionTarget.appName,
             packageName = packageName,
             timeBand = timeBand,
             sessionMinutes = ((now - updatedSession.sessionStartedAt) / 60_000L).toInt().coerceAtLeast(1),
@@ -580,7 +639,7 @@ class ShortVideoDetector {
             reentryAfterWarning = updatedSession.relaunchCount > 0,
             keywords = scoreableEvidence.keywordHits.toList(),
             uiFeatures = uiFeatures,
-            note = "YouTube Shorts stage=${stage.name} media=${mediaPlaybackLabel(mediaPlaybackActive)}",
+            note = "${detectionTarget.label} stage=${stage.name} media=${mediaPlaybackLabel(mediaPlaybackActive)}",
             mediaPlaybackActive = mediaPlaybackActive,
         )
         val decision = evaluateScenario(
@@ -774,7 +833,7 @@ class ShortVideoDetector {
             .filter { node -> isLikelyActionRailNode(node, frameWidth, frameHeight) }
             .flatMap { node -> detectActionHintsForNode(node) }
             .toSet()
-        val viewerEvidence = hasYoutubeShortsViewerEvidence(
+        val viewerEvidence = hasShortVideoViewerEvidence(
             keywordHits = surfaceKeywordHits,
             actionHints = surfaceActionHints,
         )
@@ -860,7 +919,7 @@ class ShortVideoDetector {
         }
     }
 
-    private fun hasYoutubeShortsViewerEvidence(
+    private fun hasShortVideoViewerEvidence(
         keywordHits: Set<String>,
         actionHints: Set<String>,
     ): Boolean = keywordHits.isNotEmpty() && actionHints.size >= MIN_ACTION_RAIL_HINTS
@@ -949,7 +1008,7 @@ class ShortVideoDetector {
         val hasShortSurfaceHint = keywordHits.isNotEmpty()
         val hasActionRail = actionHints.size >= MIN_ACTION_RAIL_HINTS
         val hasRepeatedVerticalNavigation = swipeBurst >= REQUIRED_SHORTS_SWIPES
-        val hasShortVideoStructure = target == ServiceTarget.YOUTUBE &&
+        val hasShortVideoStructure = target in DETECTION_TARGETS &&
             hasShortSurfaceHint &&
             hasActionRail
 
@@ -967,10 +1026,20 @@ class ShortVideoDetector {
                 add(UiFeature.CONTINUOUS_TRANSITIONS)
             }
             if (commentsSurface && hasShortVideoStructure) {
-                add(UiFeature.SHORTS_COMMENTS)
+                add(
+                    when (target) {
+                        ServiceTarget.INSTAGRAM -> UiFeature.REELS_COMMENTS
+                        else -> UiFeature.SHORTS_COMMENTS
+                    },
+                )
             }
             if (playbackPaused && hasShortVideoStructure) {
-                add(UiFeature.SHORTS_PAUSED)
+                add(
+                    when (target) {
+                        ServiceTarget.INSTAGRAM -> UiFeature.REELS_PAUSED
+                        else -> UiFeature.SHORTS_PAUSED
+                    },
+                )
             }
         }.distinct()
     }
@@ -978,7 +1047,7 @@ class ShortVideoDetector {
     private fun hasReliableShortVideoEvidence(scenario: DetectionScenario): Boolean {
         val features = scenario.uiFeatures.toSet()
         val target = ServiceTarget.fromPackage(scenario.packageName)
-        return target == ServiceTarget.YOUTUBE && (
+        return target in DETECTION_TARGETS && (
             UiFeature.VIDEO_STRUCTURE in features ||
             (UiFeature.FULLSCREEN_VERTICAL in features && UiFeature.ACTION_RAIL in features) ||
             (scenario.keywords.isNotEmpty() && UiFeature.ACTION_RAIL in features)
@@ -1073,7 +1142,7 @@ class ShortVideoDetector {
         decision: DetectionDecision,
         shouldTrigger: Boolean,
     ): String {
-        val targetReady = settings.supportedApps.isEnabled(ServiceTarget.YOUTUBE)
+        val targetReady = settings.supportedApps.isEnabled(ServiceTarget.fromPackage(packageName))
         val alertsReady = settings.alertsEnabled
         val permissionsReady = permissions.canIntervene
         val cooldownReady = now >= cooldownUntilEpochMillis
@@ -1178,6 +1247,7 @@ class ShortVideoDetector {
                 top = bounds.top,
                 right = bounds.right,
                 bottom = bounds.bottom,
+                visibleToUser = node.isVisibleToUser,
             )
 
             for (index in 0 until node.childCount) {
@@ -1228,6 +1298,8 @@ class ShortVideoDetector {
         val lastKeywordEvidenceAt: Long,
         val lastActionHintEvidenceAt: Long,
         val lastReliableEvidenceAt: Long,
+        val playbackPaused: Boolean = false,
+        val lastPlaybackProgressAt: Long = 0L,
     )
 
     private data class RelaunchState(
@@ -1277,13 +1349,17 @@ class ShortVideoDetector {
         const val SHORTS_ACTION_HINT_TTL_MS = 90_000L
         const val SHORTS_EVIDENCE_TTL_MS = 90_000L
         const val COMMENTS_ENTRY_WINDOW_MS = 10_000L
+        const val INSTAGRAM_PLAYBACK_PROGRESS_TTL_MS = 1_500L
         const val WARNING_RATE_LIMIT_MS = 30_000L
         const val RELAUNCH_WINDOW_MS = 5 * 60_000L
         const val FALLBACK_MIN_ACTION_HINTS = 3
         const val REQUIRED_SHORTS_SWIPES = 2
         const val MIN_ACTION_RAIL_HINTS = 2
-        const val MAX_NODE_DEPTH = 16
+        // Instagram の Reels ビューアはルートから 20 段以上深い位置に
+        // 固有 ID を持つ。ノード数上限は維持しつつ、その構造まで走査する。
+        const val MAX_NODE_DEPTH = 32
         const val MAX_NODE_COUNT = 350
+        val DETECTION_TARGETS = setOf(ServiceTarget.YOUTUBE, ServiceTarget.INSTAGRAM)
         val VIEW_ID_TOKEN_SPLIT_REGEX = Regex("[^a-z0-9]+")
     }
 
@@ -1309,6 +1385,7 @@ class ShortVideoDetector {
             actionHints = session.actionHints,
             swipeBurst = session.swipeBurst,
             commentsSurface = session.shortsSurface == ShortsSurface.COMMENTS,
+            playbackPaused = session.playbackPaused && session.shortsSurface != ShortsSurface.COMMENTS,
         )
 
         // 現在のセッション情報から最新のシナリオを構築

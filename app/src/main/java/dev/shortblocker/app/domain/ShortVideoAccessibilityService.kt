@@ -53,20 +53,32 @@ class ShortVideoAccessibilityService : AccessibilityService() {
 
         val store = application.container.store
         val state = store.state.value
-        val mediaPlaybackActive = if (isDetectionTimingTarget(currentPackageName)) {
+        val currentTarget = ServiceTarget.fromPackage(currentPackageName)
+        val isInstagram = currentTarget == ServiceTarget.INSTAGRAM
+        val mediaPlaybackActive = if (isDetectionTimingTarget(currentPackageName) && !isInstagram) {
             application.container.mediaPlaybackObserver.isPlaybackActive(currentPackageName)
         } else {
             null
         }
 
         // 既存のイベント駆動の処理
-        val decision = application.container.detector.processEvent(
-            event = safeEvent,
-            settings = state.settings,
-            permissions = state.permissions,
-            cooldownUntilEpochMillis = state.cooldownUntilEpochMillis,
-            mediaPlaybackActive = mediaPlaybackActive,
-        )
+        // Instagram は動画再生中に SeekBar の進捗イベントを継続的に送る。
+        // 停止中には届かないため再開シグナルとして使えるが、その断片的なノードを
+        // 画面全体の判定に使うとタイマーがぶれる。セッションの再生状態だけを更新する。
+        if (isInstagram && isInstagramPlaybackProgressEvent(safeEvent)) {
+            application.container.detector.recordInstagramPlaybackProgress(currentPackageName)
+        }
+        val decision = if (isInstagram) {
+            null
+        } else {
+            application.container.detector.processEvent(
+                event = safeEvent,
+                settings = state.settings,
+                permissions = state.permissions,
+                cooldownUntilEpochMillis = state.cooldownUntilEpochMillis,
+                mediaPlaybackActive = mediaPlaybackActive,
+            )
+        }
 
         // 対象アプリならタイマーを開始、それ以外なら停止
         val targetPackageName = safeEvent.packageName?.toString()
@@ -149,9 +161,9 @@ class ShortVideoAccessibilityService : AccessibilityService() {
                     )
                 }
             }
+
         }
     }
-
     private fun stopMonitoringTimer() {
         monitorJob?.cancel()
         monitorJob = null
@@ -211,13 +223,13 @@ class ShortVideoAccessibilityService : AccessibilityService() {
             )
             return false
         }
-        val shouldCount = ShortsViewingPolicy.shouldCount(
+        val shouldCount = ShortVideoViewingPolicy.shouldCount(
             snapshot = snapshot,
             mediaPlaybackActive = mediaPlaybackActive,
         )
         if (!shouldCount) {
             pauseDetectionTiming(
-                reason = "shorts-not-countable playback=${playbackLabel(mediaPlaybackActive)}",
+                reason = "short-video-not-countable playback=${playbackLabel(mediaPlaybackActive)}",
                 elapsedRealtime = elapsedRealtime,
             )
             return false
@@ -251,7 +263,16 @@ class ShortVideoAccessibilityService : AccessibilityService() {
     }
 
     private fun isDetectionTimingTarget(packageName: String?): Boolean {
-        return ServiceTarget.fromPackage(packageName) == ServiceTarget.YOUTUBE
+        return when (ServiceTarget.fromPackage(packageName)) {
+            ServiceTarget.YOUTUBE,
+            ServiceTarget.INSTAGRAM -> true
+            else -> false
+        }
+    }
+
+    private fun isInstagramPlaybackProgressEvent(event: AccessibilityEvent): Boolean {
+        return event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
+            event.className?.toString() == "android.widget.SeekBar"
     }
 
     private fun logDetectionTiming(

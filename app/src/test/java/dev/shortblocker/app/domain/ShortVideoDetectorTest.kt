@@ -198,34 +198,123 @@ class ShortVideoDetectorTest {
     }
 
     @Test
-    fun nonYoutubeShortVideoScenarioDoesNotTriggerForNow() {
-        val decision = detector.evaluateScenario(
-            scenario = DetectionScenario(
-                appName = "Instagram",
+    fun instagramReelsViewerTriggersWithStructuralEvidence() {
+        val decision = detector.processObservedEvent(
+            observedEvent(
                 packageName = ServiceTarget.INSTAGRAM.packageName,
-                timeBand = TimeBand.LATE_NIGHT,
-                sessionMinutes = 14,
-                relaunchCount = 2,
-                swipeBurst = 4,
-                dwellSeconds = 26,
-                reentryAfterWarning = true,
-                keywords = listOf("Reels"),
-                uiFeatures = listOf(
-                    UiFeature.FULLSCREEN_VERTICAL,
-                    UiFeature.ACTION_RAIL,
-                    UiFeature.VIDEO_STRUCTURE,
-                    UiFeature.CONTINUOUS_TRANSITIONS,
-                ),
-                note = "Instagram is intentionally out of scope while tuning YouTube Shorts",
+                nodes = instagramReelsViewerNodes(),
             ),
             settings = settings,
-            cooldownUntilEpochMillis = 0L,
-            requirePermissions = true,
             permissions = permissions,
-            now = 1_000L,
+            cooldownUntilEpochMillis = 0L,
+            now = 100_000L,
+        )!!
+
+        assertTrue(UiFeature.VIDEO_STRUCTURE in decision.snapshot.uiFeatures)
+        assertTrue(decision.snapshot.score >= settings.threshold)
+        assertTrue(decision.shouldTrigger)
+    }
+
+    @Test
+    fun instagramPauseStateSurvivesControlFadeUntilPlaybackProgressResumes() {
+        val pauseControl = signalNode(
+            text = "Play",
+            viewId = "com.instagram.android:id/clips_pause_button",
+            left = 440,
+            top = 950,
+            right = 640,
+            bottom = 1_150,
+            visibleToUser = true,
+        )
+        val paused = detector.processObservedEvent(
+            observedEvent(
+                packageName = ServiceTarget.INSTAGRAM.packageName,
+                nodes = instagramReelsViewerNodes() + pauseControl,
+            ),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = 100_000L,
+        )!!
+        val afterControlFade = detector.processObservedEvent(
+            observedEvent(
+                packageName = ServiceTarget.INSTAGRAM.packageName,
+                nodes = instagramReelsViewerNodes(),
+            ),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = 110_000L,
+        )!!
+        val progressRecorded = detector.recordInstagramPlaybackProgress(
+            ServiceTarget.INSTAGRAM.packageName,
+            now = 119_000L,
+        )
+        val resumed = detector.evaluateCurrentSession(
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = 120_000L,
+        )!!
+
+        assertTrue(UiFeature.REELS_PAUSED in paused.snapshot.uiFeatures)
+        assertTrue(UiFeature.REELS_PAUSED in afterControlFade.snapshot.uiFeatures)
+        assertTrue(progressRecorded)
+        assertFalse(UiFeature.REELS_PAUSED in resumed.snapshot.uiFeatures)
+    }
+
+    @Test
+    fun recentInstagramPlaybackProgressOverridesStalePlayControlLabel() {
+        val base = 100_000L
+        val pauseControl = signalNode(
+            text = "Play",
+            viewId = "com.instagram.android:id/clips_pause_button",
+            left = 440,
+            top = 950,
+            right = 640,
+            bottom = 1_150,
+            visibleToUser = true,
+        )
+        detector.processObservedEvent(
+            observedEvent(
+                packageName = ServiceTarget.INSTAGRAM.packageName,
+                nodes = instagramReelsViewerNodes(),
+            ),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base,
+        )
+        assertTrue(
+            detector.recordInstagramPlaybackProgress(
+                ServiceTarget.INSTAGRAM.packageName,
+                now = base + 500L,
+            ),
         )
 
-        assertFalse(decision.shouldTrigger)
+        val whileProgressing = detector.processObservedEvent(
+            observedEvent(
+                packageName = ServiceTarget.INSTAGRAM.packageName,
+                nodes = instagramReelsViewerNodes() + pauseControl,
+            ),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 1_000L,
+        )!!
+        val afterProgressStops = detector.processObservedEvent(
+            observedEvent(
+                packageName = ServiceTarget.INSTAGRAM.packageName,
+                nodes = instagramReelsViewerNodes() + pauseControl,
+            ),
+            settings = settings,
+            permissions = permissions,
+            cooldownUntilEpochMillis = 0L,
+            now = base + 3_000L,
+        )!!
+
+        assertFalse(UiFeature.REELS_PAUSED in whileProgressing.snapshot.uiFeatures)
+        assertTrue(UiFeature.REELS_PAUSED in afterProgressStops.snapshot.uiFeatures)
     }
 
     @Test
@@ -745,6 +834,33 @@ class ShortVideoDetectorTest {
         signalNode(text = "Comment", left = 950, top = 890, right = 1_030, bottom = 970),
     )
 
+    private fun instagramReelsViewerNodes(): List<SignalNode> = listOf(
+        signalNode(
+            viewId = "com.instagram.android:id/root_clips_layout",
+            left = 0,
+            top = 0,
+            right = 1_080,
+            bottom = 2_400,
+        ),
+        signalNode(
+            viewId = "com.instagram.android:id/clips_viewer_view_pager",
+            left = 0,
+            top = 0,
+            right = 1_080,
+            bottom = 2_400,
+        ),
+        signalNode(
+            viewId = "com.instagram.android:id/clips_media_component",
+            left = 0,
+            top = 0,
+            right = 1_080,
+            bottom = 2_400,
+        ),
+        signalNode(viewId = "com.instagram.android:id/like_button", left = 940, top = 800, right = 1_040, bottom = 900),
+        signalNode(viewId = "com.instagram.android:id/comment_button", left = 940, top = 920, right = 1_040, bottom = 1_020),
+        signalNode(viewId = "com.instagram.android:id/direct_share_button", left = 940, top = 1_040, right = 1_040, bottom = 1_140),
+    )
+
     private fun standardVideoNodes(): List<SignalNode> = listOf(
         signalNode(text = "Pause", left = 470, top = 260, right = 610, bottom = 340),
         signalNode(text = "Fullscreen", left = 900, top = 420, right = 1_040, bottom = 500),
@@ -768,6 +884,7 @@ class ShortVideoDetectorTest {
         top: Int,
         right: Int,
         bottom: Int,
+        visibleToUser: Boolean? = null,
     ): SignalNode = SignalNode(
         text = text,
         viewId = viewId,
@@ -776,5 +893,6 @@ class ShortVideoDetectorTest {
         top = top,
         right = right,
         bottom = bottom,
+        visibleToUser = visibleToUser,
     )
 }
